@@ -1,0 +1,1341 @@
+#!/bin/sh
+# vi: set ft=sh noet ts=8 sw=8 :: Vi/ViM
+############################################################ IDENT(1)
+#
+# $Title: Script to snoop on VFS I/O under Linux $
+# $Copyright: 2020 Devin Teske. All rights reserved. $
+# $FrauBSD: viosnoop/viosnoop 2020-02-16 20:14:11 -0800 freebsdfrau $
+#
+############################################################ DEFAULTS
+
+DEFAULT_TIME_FMT="%Y %b %e %T"
+
+############################################################ GLOBALS
+
+VERSION='$Version: 1.0.2 $'
+
+pgm="${0##*/}" # Program basename
+
+#
+# Global exit status
+#
+SUCCESS=0
+FAILURE=1
+
+#
+# Command-line options
+#
+DEBUG=				# -d
+FILTER_FOLLOW=			# -f
+FILTER_GROUP=			# -g group
+FILTER_PID=			# -p pid
+FILTER_TYPE=			# -B, -E, -N, -T type, -X
+FILTER_USER=			# -u user
+IGNORE_RUNNING=			# -n
+QUIET=				# -q
+RAW_OUTPUT=			# -r
+SHOW_PATHS=1			# -F
+TIME_FMT="$DEFAULT_TIME_FMT"	# -t fmt
+
+#
+# Miscellaneous
+#
+COMM=
+CONS=1
+[ -t 1 ] || CONS= # stdout is not a tty
+FILTER_GID=
+FILTER_UID=
+FOLLOW_PIDS=
+FORK_CONDITION=
+MAP_ID_FOLLOW=
+MAP_ID_TRACE=
+OPEN_CONDITION=
+OPEN_FDS=
+RAW_TIME_FMT='"%s"'
+TRACE_PATHS=1
+
+############################################################ FUNCTIONS
+
+die()
+{
+	local fmt="$1"
+	if [ "$fmt" ]; then
+		shift 1 # fmt
+		printf "%s: $fmt\n" "$pgm" "$@" >&2
+	fi
+	exit $FAILURE
+}
+
+if [ "$CONS" ]; then
+info(){ printf "\033[35mINFO\033[39m %s\n" "$*" >&2; }
+else
+info(){ printf "INFO %s\n" "$*" >&2; }
+fi
+
+usage()
+{
+	local optfmt="\t%-11s %s\n"
+	exec >&2
+	printf "Usage: %s [OPTIONS] [comm]\n" "$pgm"
+	printf "Options:\n"
+	printf "$optfmt" "-B" "Filter on BeeGFS filesystems."
+	printf "$optfmt" "-d" "Debug. Print script and exit."
+	printf "$optfmt" "-E" "Filter on Ext filesystems."
+	printf "$optfmt" "-F" "Do not display file/directory paths."
+	printf "$optfmt" "-f" "Follow descendents of matching processes."
+	printf "$optfmt" "-g group" "Filter on group. Can be name or GID."
+	printf "$optfmt" "-h" "Print usage statement and exit."
+	printf "$optfmt" "-N" "Filter on NFS filesystems."
+	printf "$optfmt" "-n" "Ignore already-running processes."
+	printf "$optfmt" "-p pid" "Trace process whose id is pid."
+	printf "$optfmt" "-q" "Quiet. Hide dup*, open/close, and null r/w."
+	printf "$optfmt" "-r" "Show unformatted raw output."
+	printf "$optfmt" "-S" "Filter on SMB filesystems."
+	printf "$optfmt" "-T type" "Filter on filesystem type."
+	printf "$optfmt" "-t fmt" "Time format. Default \`$DEFAULT_TIME_FMT'."
+	printf "$optfmt" "-u user" "Filter on user. Can be name or UID."
+	printf "$optfmt" "-v" "Print version and exit."
+	printf "$optfmt" "-X" "Filter on XFS filesystems."
+	printf "$optfmt" "-Z" "Filter on ZFS filesystems."
+	die
+}
+
+run_lsof()
+{
+	[ "$DEBUG" ] && return
+
+	case "$FILTER_TYPE" in
+	""|nfs*) lsof -N +c 0 ;;
+	esac
+
+	case "$FILTER_TYPE" in
+	nfs*) : skip ;;
+	*) lsof +c 0
+	esac
+}
+
+run_bpftrace()
+{
+	if [ "$DEBUG" ]; then
+		cat
+		return
+	fi
+
+	exec bpftrace -B none /dev/stdin "$@"
+}
+
+count()
+{
+	local OPTIND=1 OPTARG __flag
+	local __delim="$IFS"
+	local __var_to_set=
+
+	while getopts d:s: __flag; do
+		case "$__flag" in
+		d) __delim="$OPTARG" ;;
+		s) __var_to_set="$OPTARG" ;;
+		esac
+	done
+	shift $(( $OPTIND - 1 ))
+
+	local IFS="$__delim"
+	set -- $*
+	if [ "$__var_to_set" ]; then
+		eval $__var_to_set=$#
+	else
+		echo $#
+	fi
+}
+
+getword()
+{
+	local funcname=getword
+	local OPTIND=1 OPTARG __flag
+	local __delim="$IFS"
+	local __var_to_set=
+	local __word=
+
+	while getopts d:s:w: __flag; do
+		case "$__flag" in
+		d) __delim="$OPTARG" ;;
+		s) __var_to_set="$OPTARG" ;;
+		w) __word="$OPTARG" ;;
+		esac
+	done
+	shift $(( $OPTIND - 1 ))
+
+	case "$__word" in
+	""|*[!0-9]*) die "$funcname: \`-w' requires a number" ;;
+	esac
+
+	local IFS="$__delim"
+	set -- $*
+	if [ "$__var_to_set" ]; then
+		eval $__var_to_set=\"\$\{$__word\}\"
+	else
+		eval echo \"\$\{$__word\}\"
+	fi
+}
+
+num2bytes()
+{
+	local __num="$1" __size="${2%B}" __var_to_set="$3"
+	local __out=
+	while [ $__size -gt 0 ]; do
+		__out="$__out $(( $__num % 256 ))"
+		__num=$(( $__num >> 8 ))
+		__size=$(( $__size - 1 ))
+	done
+	__out="${__out# }"
+	if [ "$__var_to_set" ]; then
+		eval $__var_to_set=\"\$__out\"
+	else
+		echo "$__out"
+	fi
+}
+
+str2bytes()
+{
+	local __str="$1" __var_to_set="$2"
+	local __out
+
+	__out=$( echo "$__str" | awk -v max=${BPFTRACE_STRLEN:-64} '
+		BEGIN {
+			delete asc
+			for (n = 1; n <= 255; n++)
+				asc[sprintf("%c", n)] = n
+			delete chars
+		}
+		{ buf = buf "\n" $0 }
+		END {
+			buf = substr(buf, 2, max)
+			nchars = split(buf, chars, "")
+			for (n = 1; n <= nchars; n++) {
+				char = chars[n]
+				if (char == "") continue
+				max--
+				out = out " " asc[char]
+			}
+			while (max-- > 0)
+				out = out " 0"
+			print substr(out, 2)
+		}
+	' )
+
+	if [ "$__var_to_set" ]; then
+		eval $__var_to_set=\"\$__out\"
+	else
+		echo "$__out"
+	fi
+}
+
+bpf_prog_id()
+{
+	local __pid="$1" __prog="$2" __var_to_set="$3"
+	local __ls __out __res
+
+	[ "$__pid" -a "$__prog" ] || return ${FAILURE:-1}
+
+	__ls=$( ls -l /proc/$__pid/fd ) || return
+	__out=$( echo "$__ls" | awk -v pid=$__pid -v prog="$__prog" '
+		$NF == "anon_inode:bpf-prog" {
+			fd = $(NF-2)
+			fdinfo = sprintf("/proc/%d/fdinfo/%d", pid, fd)
+			id = ""
+			while (getline < fdinfo > 0) {
+				if ($1 != "prog_id:") continue
+				id = $2
+				break
+			}
+			close(fdinfo)
+			if (id == "") next
+			cmd = sprintf("bpftool prog show id %d", id)
+			if (cmd | getline <= 0 || $4 != prog) {
+				close(cmd)
+				next
+			}
+			print id
+			exit found = 1
+		}
+		END { exit found ? 0 : 3 }
+	' )
+	__res=$?
+
+	if [ "$__var_to_set" ]; then
+		eval $__var_to_set=\"\$__out\"
+	else
+		echo "$__out"
+	fi
+
+	return $__res
+}
+
+bpf_map_ids()
+{
+	local __prog="$1" __var_to_set="$2"
+	local __out __res
+
+	[ "$__prog" ] || return ${FAILURE:-1}
+
+	__out=$( bpftool prog show id $__prog ) || return
+	__out=$( echo "$__out" | awk '
+		$(NF-1) == "map_ids" {
+			print $NF
+			found = 1
+			exit
+		}
+		END { exit found ? 0 : 3 }
+	' )
+	__res=$?
+
+	if [ "$__var_to_set" ]; then
+		eval $__var_to_set=\"\$__out\"
+	else
+		echo "$__out"
+	fi
+
+	return $__res
+}
+
+############################################################ MAIN
+
+#
+# Process command-line options
+#
+while getopts BdEFfg:hNnp:qrST:t:u:vXZ flag; do
+	case "$flag" in
+	B) FILTER_TYPE=beegfs ;;
+	d) DEBUG=1 ;;
+	E) FILTER_TYPE=ext ;;
+	F) SHOW_PATHS= ;;
+	f) FILTER_FOLLOW=1 ;;
+	g) FILTER_GROUP="$OPTARG" ;;
+	n) IGNORE_RUNNING=1 ;;
+	N) FILTER_TYPE=nfs ;;
+	p) [ "$OPTARG" ] || die "\`-p' requires an argument"
+	   FILTER_PID="$OPTARG" ;;
+	q) QUIET=1 ;;
+	r) RAW_OUTPUT=1 ;;
+	S) FILTER_TYPE=smb ;;
+	T) FILTER_TYPE="$OPTARG" ;;
+	t) TIME_FMT="$OPTARG" ;;
+	u) FILTER_USER="$OPTARG" ;;
+	v) VERSION="${VERSION#*: }"
+		echo "${VERSION% $}"
+		exit $SUCCESS ;;
+	X) FILTER_TYPE=xfs ;;
+	Z) FILTER_TYPE=zfs ;;
+	*) usage # NOTREACHED
+	esac
+done
+shift $(( $OPTIND - 1 ))
+
+#
+# Process command-line arguments
+#
+COMM="$1"
+
+#
+# Process `-f' command-line option
+#
+[ ! "$FILTER_FOLLOW" ] ||
+	[ "$COMM$FILTER_GROUP$FILTER_PID$FILTER_USER" ] ||
+	die "\`-f' requires \`-u user', \`-g group', \`-p pid', or \`comm'"
+
+#
+# Process `-F' and `-q' command-line options
+#
+if [ "$QUIET" -a ! "$SHOW_PATHS" ]; then
+	TRACE_PATHS=
+fi
+
+#
+# Process user/group options
+#
+case "$FILTER_USER" in
+"") : leave-empty ;;
+*[!0-9]*) # Translate from name to UID
+	FILTER_UID=$(
+		getent passwd "$FILTER_USER" | awk -F: '{print $3}'
+	) || exit
+	;;
+*) # Translate from UID to name
+	FILTER_UID=$FILTER_USER
+	FILTER_USER=$(
+		getent passwd $FILTER_UID | awk -F: '{print $1}'
+	) || exit
+esac
+case "$FILTER_GROUP" in
+"") : leave-empty ;;
+*[!0-9]*) # Translate from name to GID
+	FILTER_GID=$( 
+		getent group "$FILTER_GROUP" | awk -F: '{print $3}'
+	) || exit
+	;;
+*) # Translate from GID to name
+	FILTER_GID=$FILTER_GROUP
+	FILTER_GROUP=$(
+		getent group $FILTER_GID | awk -F '{print $1}'
+	) || exit
+esac
+
+#
+# Process pid option
+#
+case "$FILTER_PID" in
+*[!0-9]*) die "\`-p' option must be a number" ;;
+esac
+
+#
+# Check user
+#
+if [ ! "$DEBUG" ]; then
+	if [ "${USER:=$( id -nu )}" != root ]; then
+		echo "Must be root!" >&2
+		exit $FAILURE
+	fi
+	info "Tracing I/O... Hit Ctrl-C to end."
+fi
+
+#
+# Run script
+# NB: M-x package-install [RET] dtrace-script-mode [RET]
+#
+{
+	exec 3<&1
+
+	#
+	# Enable job control so we can bring bpftrace back to foreground
+	# NB: Otherwise Ctrl-C does not function as expected
+	#
+	set -m
+
+	#
+	# Find matching processes and their children
+	#
+	if [ "$FILTER_FOLLOW" -a ! "$IGNORE_RUNNING$DEBUG" ]; then
+		info "Gathering active process info..."
+		if [ "$FILTER_PID" ]; then
+			FOLLOW_PIDS=$( pstree -p $FILTER_PID | awk \
+				-v filter_group="$FILTER_GROUP" \
+				-v filter_user="$FILTER_USER" '
+			BEGIN { delete seen }
+			function del(re){gsub(re,"")}
+			function space(re){gsub(re," ")}
+			function check_group(pid,        file, gid, L) {
+				if (filter_group == "") return 1 # OK
+				gid = ""
+				file = sprintf("/proc/%d/status", pid)
+				while (getline L < file > 0) {
+					if (L !~ /^Gid:/) next
+					sub(/^Gid:[[:space:]]*/, "", L)
+					sub(/[^0-9].*/, "", L)
+					gid = L
+					break
+				}
+				close(file)
+				return gid == filter_group
+			}
+			function check_user(pid,        file, uid, L) {
+				if (filter_user == "") return 1 # OK
+				uid = ""
+				file = sprintf("/proc/%d/status", pid)
+				while (getline L < file > 0) {
+					if (L !~ /^Uid:/) next
+					sub(/^Uid:[[:space:]]*/, "", L)
+					sub(/[^0-9].*/, "", L)
+					uid = L
+					break
+				}
+				close(file)
+				return uid == filter_user
+			}
+			match($0, /^[^[:space:](]+\([0-9]+\)/) {
+				pid = substr($0, 1, RLENGTH - 1)
+				$0 = substr($0, RLENGTH + 1)
+				sub(/.*\(/, "", pid)
+				if (!(pid in seen)) pids = pids " " pid
+			}
+			{
+				space("[^0-9]")
+				space("[[:space:]]+")
+				del("(^[[:space:]]+|[[:space:]]+$)")
+				npids = split($0, list)
+				for (n = 1; n <= npids; n++) {
+					if ((pid = list[n]) in seen) continue
+
+					# group filter
+					if (!check_group(pid)) continue
+
+					# user filter
+					if (!check_user(pid)) continue
+
+					pids = pids " " pid
+					seen[pid]
+				}
+			}
+			END { print substr(pids, 2) }
+			' )
+		else
+			FOLLOW_PIDS=$( pgrep ${COMM:+"$COMM"} \
+				${FILTER_USER:+-U "$FILTER_USER"} \
+				${FILTER_GROUP:+-G "$FILTER_GROUP"} |
+				awk '
+			BEGIN { delete seen }
+			function del(re){gsub(re,"")}
+			function space(re){gsub(re," ")}
+			match($0, /^[^[:space:](]+\([0-9]+\)/) {
+				pid = substr($0, 1, RLENGTH - 1)
+				$0 = substr($0, RLENGTH + 1)
+				sub(/.*\(/, "", pid)
+				if (!(pid in seen)) pids = pids " " pid
+			}
+			{
+				space("[^0-9]")
+				space("[[:space:]]+")
+				del("(^[[:space:]]+|[[:space:]]+$)")
+				npids = split($0, list)
+				for (n = 1; n <= npids; n++) {
+					if ((pid = list[n]) in seen) continue
+					pids = pids " " pid
+					seen[pid]
+				}
+			}
+			END { print substr(pids, 2) }
+			' )
+		fi
+	fi
+
+	#
+	# Find open *file* descriptors
+	#
+	if [ ! "$IGNORE_RUNNING$DEBUG" ]; then
+		info "Gathering open file-descriptor info..."
+		OPEN_FDS=$( run_lsof | awk \
+			-v comm="$COMM" \
+			-v debug=${DEBUG:-0} \
+			-v filter_follow=${FILTER_FOLLOW:-0} \
+			-v filter_group="$FILTER_GROUP" \
+			-v filter_pid="$FILTER_PID" \
+			-v filter_type="$FILTER_TYPE" \
+			-v filter_user="$FILTER_USER" \
+			-v follow_pids="$FOLLOW_PIDS" \
+			-v show_paths=${SHOW_PATHS:-0} \
+			-v stderr=/dev/stderr \
+			-v timefmt="$TIME_FMT" \
+		'####################################### BEGIN
+
+		BEGIN {
+			if (timefmt != "") {
+				srand()
+				time = srand()
+			}
+
+			delete follow
+			nfollow = split(follow_pids, list)
+			for (n = 1; n <= nfollow; n++) {
+				follow[list[n]]
+			}
+
+			delete mounts
+			delete mount_type
+			file = "/proc/mounts"
+			nmounts = 0
+			root_mount = ""
+			root_mount_type = ""
+			flen = length(filter_type)
+			while (getline < file > 0) {
+				if (filter_type != "" &&
+				    substr($3, 1, flen) != filter_type)
+					continue
+				if ($2 == "/") {
+					root_mount = $2
+					root_mount_type = $3
+				} else {
+					mounts[++nmounts] = $2
+					sub("/+$", "", mounts[nmounts])
+					mount_type[nmounts] = $3
+				}
+			}
+			close(file)
+			if (root_mount != "") {
+				mounts[++nmounts] = root_mount
+				mount_type[nmounts] = root_mount_type
+			}
+
+			delete seen
+		}
+
+		######################################## FUNCTIONS
+
+		function key(a, b) { return a "," b }
+
+		function emit(str)
+		{
+			if (debug) return
+			printf "%s|%s\n", time, str
+			fflush()
+		}
+
+		function info(str)
+		{
+			emit(sprintf("info|%s", str))
+		}
+
+		######################################## MAIN
+
+		# Skip header
+		$1 == "COMMAND" && $2 == "PID" && $NF == "NAME" { next }
+
+		# Parse fields
+		{
+			line = $0
+			cmd  = $1
+			pid  = $2
+			if ($3 ~ /^[0-9]/) {
+				tid  = $3
+				user = 4
+			} else {
+				user = 3
+			}
+			fd   = $(user + 1)
+			if (fd !~ /^[0-9]/) next
+			type = $(user + 2)
+			dev  = $(user + 3)
+			size = $(user + 4)
+			node = $(user + 5)
+			name = user + 6
+			user = $user
+			while (--name > 0)
+				sub(/^[^[:space:]]+[[:space:]]+/, "")
+			name = $0
+			$0 = line
+		}
+
+		type != "DIR" && fd ~ /^[0-9]+[rwu-]$/ {
+
+			if (key(pid, fd) in seen) next
+
+			matched = 0
+			for (n = 1; n <= nmounts; n++) {
+				mnt = mounts[n]
+				mnt_type = mount_type[n]
+				len = length(mnt)
+				pre = substr(name, 1, len + 1)
+				if (mnt == "/" && name ~ "^/")
+					matched = 1
+				else if (name == mnt || pre == mnt "/")
+					matched = 1
+				if (matched) break
+			}
+			if (!matched) next
+
+			# follow filter
+			if (filter_follow && !(pid in follow)) {
+				next
+			} else if (!filter_follow) {
+				# NB: follow_pids should contain all the pids
+				# that match the below criterion.
+
+				# pid filter
+				if (filter_pid != "" && pid != filter_pid) {
+					next
+				}
+
+				# comm filter
+				if (comm != "" && cmd != comm) {
+					next
+				}
+
+				# user filter
+				if (filter_user != "" && user != filter_user) {
+					next
+				}
+
+				# group filter
+				if (filter_group != "") {
+					gid = ""
+					file = sprintf("/proc/%d/status", pid)
+					while (getline L < file > 0) {
+						if (L !~ /^Gid:/) next
+						sub(/^Gid:[[:space:]]*/, "", L)
+						sub(/[^0-9].*/, "", L)
+						gid = L
+						break
+					}
+					close(file)
+					if (gid != filter_group) next
+				}
+			}
+
+			#
+			# Send information to post-processor about open
+			# file-descriptor matching search criterion.
+			#
+			filename = $0
+			sub("^[^/]*/", "/", filename)
+			sub(/ \([^)]+\)$/, "", filename)
+			if (show_paths) {
+				printf "%s|enter_open|%s|%s|%d|%s|%s\n",
+					timefmt == "" ? "" : time,
+					user, cmd, pid,
+					mnt_type, filename
+			}
+			printf "%s|exit_open|%s|%s|%d|%s|%d|1\n",
+				timefmt == "" ? "" : time, user, cmd, pid,
+				mnt_type, fd
+
+			#
+			# Save information for later bpftool
+			#
+			printf "%d:%d:%s\n", pid, fd, mnt_type > stderr
+
+			#
+			# Prevent duplicate reporting
+			# NB: In the case of multiple threads, for example
+			#
+			seen[key(pid, fd)]
+		}
+		' 2>&1 >&3 ) || die "%s" "$OPEN_FDS"
+	fi
+
+	#
+	# Generate conditions
+	#
+	condition=
+	if [ "$COMM" ]; then
+		if [ "$FILTER_FOLLOW" ]; then
+			# For tracepoint:sched:sched_process_fork
+			condition="$condition && args->parent_comm == str(\$1)"
+		else
+			# For tracepoint:syscalls:sys_enter_open*
+			condition="$condition && comm == str(\$1)"
+		fi
+	fi
+	if [ "$FILTER_GID" ]; then
+		condition="$condition && gid == $FILTER_GID"
+	fi
+	if [ "$FILTER_UID" ]; then
+		condition="$condition && uid == $FILTER_UID"
+	fi
+	if [ "$FILTER_PID" ]; then
+		if [ "$FILTER_FOLLOW" ]; then
+			condition="pid == $FILTER_PID || (${condition# && })"
+			condition="${condition% || ()}"
+		else
+			condition="$condition && pid == $FILTER_PID"
+		fi
+	fi
+	condition="${condition# && }"
+	if [ "$FILTER_FOLLOW" ]; then
+		FORK_CONDITION="$condition"
+		OPEN_CONDITION="@follow[pid]"
+	else
+		OPEN_CONDITION="$condition"
+	fi
+
+	#
+	# Start background bpftrace
+	#
+	run_bpftrace "$@" <<EOF &
+	/* -*- mode: dtrace-script; tab-width: 4 -*- ;; Emacs
+	 * vi: set ft=dtrace noet ts=4 sw=4 :: Vi/ViM
+	 */
+
+	#include <linux/fs.h>
+	#include <linux/mount.h>
+
+	BEGIN
+	{
+		@trace[-1,-1] = ""; // Required to create map
+		delete(@trace[-1,-1]); // Delete dummy entry
+
+		${FILTER_FOLLOW:+@follow[-1] = 1;
+		delete(@follow[-1]);}
+	}
+${FILTER_FOLLOW:+"
+	tracepoint:sched:sched_process_fork
+	/$FORK_CONDITION/
+	{
+		@follow[args->parent_pid] = 1;
+		@follow[args->child_pid] = 1;
+	}
+
+	tracepoint:sched:sched_process_fork
+	/@follow[args->parent_pid]/
+	{
+		@follow[args->child_pid] = 1;
+	}
+
+	tracepoint:sched:sched_process_exit
+	/@follow[args->pid]/
+	{
+		delete(@follow[args->pid]);
+	}
+"}
+	/*
+	 * open(2)/openat(2) [enter] probes
+	 */
+
+$( for func in sys_enter_open sys_enter_openat; do
+	name=${func#*enter_}
+	printf "\ttracepoint:syscalls:%s\n" $func
+cat <<PROBE
+	${OPEN_CONDITION:+/$OPEN_CONDITION/
+	}{
+		delete(@vfs_${name}_trace[tid]); // Flag from vfs_open
+		@vfs_$name[tid] = 1; // Flag for vfs_open
+
+${TRACE_PATHS:+`awk 'sub(/^\\\\/,"")||1' <<-TRACE_PATHS
+\		${TIME_FMT:+time($RAW_TIME_FMT);
+\		}printf("|${func#sys_}|%d.%d|%s|%d||%s\n",
+\			uid, gid, comm, pid,
+\			str(args->filename));
+		TRACE_PATHS`}
+	}
+
+PROBE
+done )
+
+	/*
+	 * Kernel probes
+	 * NB: vfs_open() always called after open(2)/openat(2)
+	 */
+
+$( for func in sys_enter_open sys_enter_openat; do
+	name=${func#*enter_}
+	exit_func=${func%%enter_*}exit_$name
+cat <<PROBE
+	kprobe:vfs_open
+	/@vfs_$name[tid]/
+	{
+		delete(@vfs_$name[tid]); // Flag from $func
+
+		//
+		// Extract the filesystem type from mount superblock
+		//
+		\$path = (struct path *)arg0;
+		\$mnt = (struct vfsmount *)\$path->mnt;
+		\$mnt_sb = (struct super_block *)\$mnt->mnt_sb;
+		\$type = (struct file_system_type *)\$mnt_sb->s_type;
+		\$fstype = \$type->name;
+
+		//
+		// Test filesystem type (for $exit_func)
+		//
+$( if [ "$FILTER_TYPE" ]; then
+		awk 'sub(/^\\/,"")||1' <<-FILTER_TYPE
+\		if (str(\$fstype, ${#FILTER_TYPE}) == "$FILTER_TYPE") {
+\			@vfs_${name}_trace[tid] = str(\$fstype);
+\		}
+		FILTER_TYPE
+else
+		awk 'sub(/^\\/,"")||1' <<-FILTER_TYPE
+\		@vfs_${name}_trace[tid] = str(\$fstype);
+		FILTER_TYPE
+fi )
+	}
+
+PROBE
+done )
+
+	/*
+	 * open(2)/openat(2) [exit] probes
+	 */
+
+$( for func in sys_exit_open sys_exit_openat; do
+	name=${func#*exit_}
+cat <<PROBE
+	tracepoint:syscalls:$func
+	/@vfs_${name}_trace[tid] != ""/
+	{
+		\$fstype = @vfs_${name}_trace[tid];
+
+		delete(@vfs_${name}_trace[tid]); // Flag from vfs_open
+
+		\$ret = args->ret;
+		if (\$ret >= 0)
+		{
+			\$fd = (uint64)\$ret;
+
+			// Set flag to trace read/write on fd
+			@trace[pid, \$fd] = \$fstype;
+
+${TRACE_PATHS:+`awk 'sub(/^\\\\/,"")||1' <<-TRACE_PATHS
+\			${TIME_FMT:+time($RAW_TIME_FMT);
+\			}printf("|${func#sys_}|%d.%d|%s|%d|%s|",
+\				uid, gid, comm, pid,
+\				\\\$fstype);
+\			printf("%d|1\n", \\\$fd);
+\		}
+\		else
+\		{
+\			${TIME_FMT:+time($RAW_TIME_FMT);
+\			}printf("|${func#sys_}|%d.%d|%s|%d|%s|",
+\				uid, gid, comm, pid,
+\				\\\$fstype);
+\			printf("%d|0\n", \\\$fd);
+			TRACE_PATHS`}
+		}
+	}
+
+PROBE
+done )
+
+	/*
+	 * dup*(2) probes
+	 */
+
+	tracepoint:syscalls:sys_enter_dup
+	/@trace[pid, args->fildes] != ""/
+	{
+		\$fd = (int64)args->fildes;
+
+		@dup_fd[tid] = \$fd; // Pass to sys_exit_dup
+	}
+
+	tracepoint:syscalls:sys_exit_dup
+	/@dup_fd[tid]/
+	{
+		\$oldfd = (int64)@dup_fd[tid];
+		\$newfd = (int64)args->ret;
+
+		delete(@dup_fd[tid]); // Arg from sys_enter_dup
+
+		if (\$oldfd != \$newfd)
+		{
+			// Set flag to trace read/write on fd
+			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
+
+			${TIME_FMT:+time($RAW_TIME_FMT);
+			}printf("|dup|%d.%d|%s|%d|%s|",
+				uid, gid, comm, pid,
+				@trace[pid, \$newfd]);
+			printf("%d|%d\n", \$oldfd, \$newfd);
+		}
+
+	}
+
+	tracepoint:syscalls:sys_enter_dup2
+	/@trace[pid, args->oldfd] != ""/
+	{
+		\$oldfd = (int64)args->oldfd;
+		\$newfd = (int64)args->newfd;
+
+		if (\$oldfd != \$newfd)
+		{
+			// Set flag to trace read/write on fd
+			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
+
+			${TIME_FMT:+time($RAW_TIME_FMT);
+			}printf("|dup2|%d.%d|%s|%d|%s|",
+				uid, gid, comm, pid,
+				@trace[pid, \$newfd]);
+			printf("%d|%d\n", \$oldfd, \$newfd);
+		}
+	}
+
+	tracepoint:syscalls:sys_enter_dup3
+	/@trace[pid, args->oldfd] != ""/
+	{
+		\$oldfd = (int64)args->oldfd;
+		\$newfd = (int64)args->newfd;
+
+		if (\$oldfd != \$newfd)
+		{
+			// Set flag to trace read/write on fd
+			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
+
+			${TIME_FMT:+time($RAW_TIME_FMT);
+			}printf("|dup3|%d.%d|%s|%d|%s|",
+				uid, gid, comm, pid,
+				@trace[pid, \$newfd]);
+			printf("%d|%d\n", \$oldfd, \$newfd);
+		}
+	}
+
+	/*
+	 * close(2) probe
+	 */
+
+	tracepoint:syscalls:sys_enter_close
+	/@trace[pid, args->fd] != ""/
+	{
+		\$fd = args->fd;
+		\$fstype = @trace[pid, \$fd];
+
+		delete(@trace[pid, \$fd]); // Stop tracing read/write on fd
+${TRACE_PATHS:+`cat <<TRACE_PATHS
+
+		${TIME_FMT:+time($RAW_TIME_FMT);
+		}printf("|close|%d.%d|%s|%d|%s|",
+			uid, gid, comm, pid,
+			\\\$fstype);
+		printf("%d\n", \\\$fd);
+TRACE_PATHS`}
+	}
+
+	/*
+	 * Read/Write probes
+	 */
+
+	tracepoint:syscalls:sys_enter_read
+	/@trace[pid, args->fd] != ""/
+	{
+		\$fd = args->fd;
+		\$count = args->count;
+
+		// Pass args to sys_exit_read
+		@read_exit[tid] = 1;
+		@read_fd[tid] = \$fd;
+		@read_count[pid, \$fd] = \$count;
+	}
+
+	tracepoint:syscalls:sys_exit_read
+	/@read_exit[tid]/
+	{
+		\$fd = @read_fd[tid];
+		\$count = @read_count[pid, \$fd];
+		\$ret = args->ret;
+		\$fstype = @trace[pid, \$fd];
+
+		// Args from sys_enter_read
+		delete(@read_exit[tid]);
+		delete(@read_fd[tid]);
+		delete(@read_count[pid, \$fd]);
+
+		${TIME_FMT:+time($RAW_TIME_FMT);
+		}printf("|read|%d.%d|%s|%d|%s|",
+			uid, gid, comm, pid,
+			\$fstype);
+		printf("%d|%ld|%ld\n", \$fd, \$count, \$ret);
+	}
+
+	tracepoint:syscalls:sys_enter_write
+	/@trace[pid, args->fd] != ""/
+	{
+		\$fd = args->fd;
+		\$count = args->count;
+
+		// Pass args to sys_exit_write
+		@write_exit[tid] = 1;
+		@write_fd[tid] = \$fd;
+		@write_count[pid, \$fd] = \$count;
+	}
+
+	tracepoint:syscalls:sys_exit_write
+	/@write_exit[tid]/
+	{
+		\$fd = @write_fd[tid];
+		\$count = @write_count[pid, \$fd];
+		\$ret = args->ret;
+		\$fstype = @trace[pid, \$fd];
+
+		// Args from sys_enter_write
+		delete(@write_exit[tid]);
+		delete(@write_fd[tid]);
+		delete(@write_count[pid, \$fd]);
+
+		${TIME_FMT:+time($RAW_TIME_FMT);
+		}printf("|write|%d.%d|%s|%d|%s|",
+			uid, gid, comm, pid,
+			\$fstype);
+		printf("%d|%ld|%ld\n", \$fd, \$count, \$ret);
+	}
+
+	END {${FILTER_FOLLOW:+
+		clear(@follow);}
+		clear(@dup_fd);
+		clear(@read_count);
+		clear(@read_exit);
+		clear(@read_fd);
+		clear(@trace);
+$( for func in sys_enter_open sys_enter_openat; do
+		name=${func#*enter_}
+		awk 'sub(/^\\/,"")||1' <<-CLEAR
+\		clear(@vfs_$name);
+\		clear(@vfs_${name}_trace);
+		CLEAR
+done )
+		clear(@write_count);
+		clear(@write_exit);
+		clear(@write_fd);
+	}
+
+//////////////////////////////////////////////////////////////////////
+// END
+//////////////////////////////////////////////////////////////////////
+EOF
+	pid=$!
+	prog_id=
+	map_ids=
+
+	#
+	# Identify child bpftrace
+	#
+	if [ "$OPEN_FDS$FOLLOW_PIDS" -a ! "$DEBUG" ]; then
+		info "Waiting for bpftrace to initialize..."
+		while kill -0 $pid 2> /dev/null; do
+			if [ ! "$prog_id" ]; then
+				bpf_prog_id $pid BEGIN prog_id
+			elif [ ! "$map_ids" ]; then
+				bpf_map_ids $prog_id map_ids
+			else
+				break
+			fi
+			sleep 1
+		done
+		if ! kill -0 $pid 2> /dev/null; then
+			wait $pid > /dev/null 2>&1 # Collect exit status
+			echo EXIT:$? # Send status to post-processor
+			exit
+		fi
+
+		#
+		# Store map ids
+		#
+		getword -w 1 -s MAP_ID_TRACE  -d , $map_ids
+		getword -w 2 -s MAP_ID_FOLLOW -d , $map_ids
+	fi
+
+	#
+	# Update map entries
+	#
+	if [ "$OPEN_FDS" -a "$MAP_ID_TRACE" ]; then
+		count -s cnt $OPEN_FDS
+		for pid_fd_type in $OPEN_FDS; do
+			getword -w 1 -s pid  -d : $pid_fd_type
+			getword -w 2 -s fd   -d : $pid_fd_type
+			getword -w 3 -s type -d : $pid_fd_type
+			num2bytes $pid 8B map_pid
+			num2bytes $fd 8B map_fd
+			str2bytes $type map_value
+			echo map update id $MAP_ID_TRACE \
+				key $map_pid $map_fd value $map_value
+		done | bpftool batch file /dev/stdin
+		info "Loaded $cnt fds into bpftrace map" \
+			"(pid $pid, prog $prog_id, map $MAP_ID_TRACE)"
+	fi
+	if [ "$FOLLOW_PIDS" -a "$MAP_ID_FOLLOW" ]; then
+		count -s cnt $FOLLOW_PIDS
+		for pid in $FOLLOW_PIDS; do
+			num2bytes $pid 8B map_key
+			num2bytes 1    8B map_value
+			echo map update id $MAP_ID_FOLLOW \
+				key $map_key value $map_value
+		done | bpftool batch file /dev/stdin
+		info "Loaded $cnt pids into bpftrace map" \
+			"(pid $pid, prog $prog_id, map $MAP_ID_FOLLOW)"
+	fi
+
+	#
+	# Bring bpftrace child back to the foreground
+	#
+	exec 9<&1 # Save a copy of stdout
+	exec > /dev/null # make below fg silent (no effect on job stdout)
+	fg %1
+	wait $pid > /dev/null 2>&1 # Collect exit status
+	echo EXIT:$? >&9 # Send status to post-processor
+
+} | awk -F'|' \
+	-v cons=${CONS:-0} \
+	-v debug=${DEBUG:-0} \
+	-v quiet=${QUIET:-0} \
+	-v raw=${RAW_OUTPUT:-0} \
+	-v show_paths=${SHOW_PATHS:-0} \
+	-v stderr=/dev/stderr \
+	-v timefmt="$TIME_FMT" \
+	'################################################# BEGIN
+
+	BEGIN {
+		exit_status = 0 # SUCCESS
+
+		red     = "\033[31m"
+		green   = "\033[32m"
+		magenta = "\033[35m"
+		cyan    = "\033[36m"
+		fgreset = "\033[39m"
+
+		srand() # Seed clock
+		tlim = srand() * 2 # limit time outliers
+	}
+
+	################################################## FUNCTIONS
+
+	function key(a, b) { return a "," b }
+	function fprint() { print; fflush() }
+	function eprint() { print > stderr; fflush(stderr) }
+
+	function info(str)
+	{
+		printf "%sINFO%s %s\n",
+			cons ? magenta : "", cons ? fgreset : "", str > stderr
+		fflush(stderr)
+	}
+
+	function emit(color, str)
+	{
+		if (timefmt != "") {
+			if (time !~ /^[0-9]+$/ || time > tlim || time < 0)
+				return
+			printf "%s%s%s %s %s[%d]: <%s> %s\n",
+				cons ? color : "", strftime(timefmt, time),
+				cons ? fgreset : "", user, cmd, pid,
+				fstype, str;
+		} else {
+			printf "%s %s[%d]: <%s> %s\n",
+				user, cmd, pid,
+				fstype, str;
+		}
+		fflush()
+	}
+
+	################################################## MAIN
+
+	sub(/^EXIT:/, "") { exit_status = $0; next }
+	debug { sub(/^\t/, ""); fprint(); next }
+	raw { fprint(); next }
+ 	/^Attaching [0-9]+ probes/ { eprint(); next }
+
+	# Base fields
+	{ time = $1 }
+	timefmt != "" {
+		if (time == "" || time < 0) next
+	}
+	{ call = $2 }
+
+	# Message passing
+	call == "info" {
+		msg = $0
+		for (n = 1; n <= 2; n++)
+			sub(/^[^|]*\|/, "", msg)
+		info(msg)
+		next
+	}
+
+	# Common fields
+	NF < 6 { next } # Malformed input
+	{
+		user = $3 # uid.gid
+		cmd = $4
+		pid = $5
+		fstype = $6
+		if (call == "enter_open" || call == "enter_openat") {
+			if (NF < 7) next # Malformed input
+			filename = $7
+		} else if (call != "fork_job" && call != "job_exit") {
+			if (NF < 7) next # Malformed input
+			fd = $7
+		}
+	}
+
+	call == "enter_open" || call == "enter_openat" {
+		if (filename != "") filename_cache[pid] = filename
+		next
+	}
+
+	call == "exit_open" || call == "exit_openat" {
+		if (NF < 8) next # Malformed input
+		if ($8 != 1) { # Ignored filesystem type
+			if (show_paths)
+				delete filename_cache[pid]
+			next
+		}
+		# Traced filesystem type
+		callname = substr(call, 6)
+		if (show_paths) {
+			filename = filename_cache[pid]
+			delete filename_cache[pid]
+			filename_cache[key(pid, fd)] = filename
+			if (!quiet) {
+				emit(green, sprintf("%s(filename=%s) = %d",
+					callname, filename, fd))
+			}
+		} else if (!quiet) {
+			emit(green, sprintf("%s() = %d", callname, fd))
+		}
+		next
+	}
+
+	call == "dup" {
+		if (NF < 8) next # Malformed input
+		newfd = $8
+		if (show_paths) {
+			filename = filename_cache[key(pid, fd)]
+			filename_cache[key(pid, newfd)] = filename
+			if (!quiet) {
+				emit(green, sprintf("dup(fd=%d <%s>) = %d",
+					fd, filename, newfd))
+			}
+		} else if (!quiet) {
+			emit(green, sprintf("dup(fd=%d) = %d", fd, newfd))
+		}
+		next
+	}
+
+	call == "dup2" || call == "dup3" {
+		if (NF < 8) next # Malformed input
+		newfd = $8
+		if (show_paths) {
+			filename = filename_cache[key(pid, fd)]
+			filename_cache[key(pid, newfd)] = filename
+			if (!quiet) {
+				emit(green,
+					sprintf("%s(oldfd=%d <%s>, newfd=%d)",
+					call, fd, filename, newfd))
+			}
+		} else if (!quiet) {
+			emit(green, sprintf("%s(oldfd=%d, newfd=%d)",
+				call, fd, newfd))
+		}
+		next
+	}
+
+	call == "close" {
+		if (show_paths) {
+			k = key(pid, fd)
+			filename = filename_cache[k]
+			if (!quiet) {
+				emit(green, sprintf("close(fd=%d <%s>)",
+					fd, filename))
+			}
+			delete filename_cache[k]
+		} else if (!quiet) {
+			emit(green, sprintf("close(fd=%d)", fd))
+		}
+		next
+	}
+
+	call == "read" || call == "write" {
+		if (NF < 9) next # Malformed input
+		ret = $9
+		if (quiet && ret == 0) next
+		count = $8
+		if (show_paths) {
+			filename = filename_cache[key(pid, fd)]
+			emit(call == "read" ? cyan : red,
+				sprintf("%s(fd=%d <%s>, count=%ld) = %ld",
+				call, fd, filename, count, ret))
+		} else {
+			emit(call == "read" ? cyan : red,
+				sprintf("%s(fd=%d, count=%ld) = %ld",
+				call, fd, count, ret))
+		}
+		next
+	}
+
+	################################################## END
+
+	END { exit exit_status }
+' # END-QUOTE
+
+################################################################################
+# END
+################################################################################
+# Local Variables:
+# mode: sh
+# tab-width: 8
+# sh-basic-offset: 8
+# indent-tabs-mode: t
+# backward-delete-char-untabify-method: nil
+# End:
