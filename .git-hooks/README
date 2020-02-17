@@ -1,0 +1,23 @@
+# $FrauBSD: viosnoop/.git-hooks/README 2020-02-16 20:00:18 -0800 freebsdfrau $
+
+!! ATTENTION DEVELOPERS AND CONTRIBUTORS !!
+
+To get RCS Keywords (like the FrauBSD one at the top of this file) to expand,
+follow these steps before using `git commit' in this project:
+
+   $ .git-hooks/install.sh
+
+Cheers!
+
+Supported keywords:
+
+	$Author: freebsdfrau $
+	$Branch: master $
+	$Date: 2020-02-16 20:00:18 -0800 $
+	$Header: .git-hooks/README 2020-02-16 20:00:18 -0800 freebsdfrau $
+	$Origin: https://github.com/FrauBSD/viosnoop.git $
+	$Project: //github.com/FrauBSD/viosnoop.git $
+	$RCSfile: README $
+	$Source: .git-hooks/README $
+	$FrauBSD: viosnoop/.git-hooks/README 2020-02-16 20:00:18 -0800 freebsdfrau $
+
