@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop
 License: BSD
-Version: 1.0.2
+Version: 1.0.3
 Release: 1
 Buildarch: noarch
 
@@ -78,5 +78,7 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
+* Sun Feb 16 2020 Devin Teske <dteske@fraubsd.org> 1.0.3-1
+- ffb2b33 Whitespace
 * Sun Feb 16 2020 Devin Teske <dteske@fraubsd.org> 1.0.2-1
 - Package created.
