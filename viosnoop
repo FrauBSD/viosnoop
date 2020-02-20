@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:21:05 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:22:49 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-beta-5 $'
+VERSION='$Version: 3.0-beta-6 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -844,8 +844,8 @@ $( for func in sys_enter_open sys_enter_openat; do
 	name=${func#*enter_}
 	printf "\ttracepoint:syscalls:%s\n" $func
 cat <<PROBE
-	${OPEN_CONDITION:+/$OPEN_CONDITION/
-	}{
+	/str(args->filename) != ""${OPEN_CONDITION:+ && $OPEN_CONDITION}/
+	{
 		delete(@vfs_${name}_trace[tid]); // Flag from vfs_open
 		@vfs_$name[tid] = 1; // Flag for vfs_open
 
