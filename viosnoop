@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:10:59 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:13:48 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-alpha-9 $'
+VERSION='$Version: 3.0-beta-1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -606,7 +606,7 @@ fi
 		function emit(str)
 		{
 			if (debug) return
-			printf "%s|%s\n", time, str
+			printf "%s|%s\n", timefmt == "" ? "" : time, str
 			fflush()
 		}
 
@@ -716,14 +716,13 @@ fi
 			sub("^[^/]*/", "/", filename)
 			sub(/ \([^)]+\)$/, "", filename)
 			if (show_paths) {
-				printf "%s|enter_open|%s|%s|%d|%s|%s\n",
-					timefmt == "" ? "" : time,
+				emit(sprintf("enter_open|%s|%s|%d|%s|%s",
 					user, cmd, pid,
-					mnt_type, filename
+					mnt_type, filename))
 			}
-			printf "%s|exit_open|%s|%s|%d|%s|%d|1\n",
-				timefmt == "" ? "" : time, user, cmd, pid,
-				mnt_type, fd
+			emit(sprintf("exit_open|%s|%s|%d|%s|%d|1",
+				user, cmd, pid,
+				mnt_type, fd))
 
 			#
 			# Save information for later bpftool
