@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:38:40 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:41:00 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-rc-2 $'
+VERSION='$Version: 3.0-rc-3 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1440,18 +1440,18 @@ EOF
 	}
 
 	call == "enter_open" || call == "enter_openat" {
-		if (NF < 7) next # Malformed input
-		fstype = $6
-		filename = $7
+		if (NF < NCF + 2) next # Malformed input
+		fstype = $(NCF + 1)
+		filename = $(NCF + 2)
 		if (filename != "") filename_cache[pid] = filename
 		next
 	}
 
 	call == "exit_open" || call == "exit_openat" {
-		if (NF < 8) next # Malformed input
-		fstype = $6
-		fd = $7
-		trace = $8
+		if (NF < NCF + 3) next # Malformed input
+		fstype = $(NCF + 1)
+		fd = $(NCF + 2)
+		trace = $(NCF + 3)
 		if (trace != 1) { # Ignored filesystem type
 			if (show_paths)
 				delete filename_cache[pid]
@@ -1474,10 +1474,10 @@ EOF
 	}
 
 	call == "dup" {
-		if (NF < 8) next # Malformed input
-		fstype = $6
-		fd = $7
-		newfd = $8
+		if (NF < NCF + 3) next # Malformed input
+		fstype = $(NCF + 1)
+		fd = $(NCF + 2)
+		newfd = $(NCF + 3)
 		if (show_paths) {
 			filename = filename_cache[key(pid, fd)]
 			filename_cache[key(pid, newfd)] = filename
@@ -1492,10 +1492,10 @@ EOF
 	}
 
 	call == "dup2" || call == "dup3" || call == "fcntl" {
-		if (NF < 8) next # Malformed input
-		fstype = $6
-		fd = $7
-		newfd = $8
+		if (NF < NCF + 3) next # Malformed input
+		fstype = $(NCF + 1)
+		fd = $(NCF + 2)
+		newfd = $(NCF + 3)
 		if (show_paths) {
 			filename = filename_cache[key(pid, fd)]
 			filename_cache[key(pid, newfd)] = filename
@@ -1512,9 +1512,9 @@ EOF
 	}
 
 	call == "close" {
-		if (NF < 7) next # Malformed input
-		fstype = $6
-		fd = $7
+		if (NF < NCF + 2) next # Malformed input
+		fstype = $(NCF + 1)
+		fd = $(NCF + 2)
 		if (show_paths) {
 			k = key(pid, fd)
 			filename = filename_cache[k]
@@ -1530,11 +1530,11 @@ EOF
 	}
 
 	call == "read" || call == "write" {
-		if (NF < 9) next # Malformed input
-		fstype = $6
-		fd = $7
-		count = $8
-		ret = $9
+		if (NF < NCF + 4) next # Malformed input
+		fstype = $(NCF + 1)
+		fd = $(NCF + 2)
+		count = $(NCF + 3)
+		ret = $(NCF + 4)
 		if (quiet && ret == 0) next
 		if (show_paths) {
 			filename = filename_cache[key(pid, fd)]
