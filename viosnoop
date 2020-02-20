@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:46:21 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:48:25 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.1-rc-1 $'
+VERSION='$Version: 3.1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1203,10 +1203,13 @@ EOF
 		while kill -0 $pid 2> /dev/null; do
 			if [ ! "$prog_id" ]; then
 				bpf_prog_id $pid BEGIN prog_id
+				if [ "$prog_id" ]; then
+					bpf_map_ids $prog_id map_ids
+					[ "$map_ids" ] && break
+				fi
 			elif [ ! "$map_ids" ]; then
 				bpf_map_ids $prog_id map_ids
-			else
-				break
+				[ "$map_ids" ] && break
 			fi
 			sleep 1
 		done
