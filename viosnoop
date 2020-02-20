@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:17:34 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:21:05 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-beta-4 $'
+VERSION='$Version: 3.0-beta-5 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -779,6 +779,8 @@ fi
 	#include <linux/fs.h>
 	#include <linux/mount.h>
 
+	////////////////////////////////////////////////// BEGIN
+
 	BEGIN
 	{
 		@trace[-1,-1] = ""; // Required to create map
@@ -792,6 +794,8 @@ fi
 		@pid_ignore[$POSTPROC_PID] = 1;${SSHD_PID:+
 		@pid_ignore[$SSHD_PID] = 1;}
 	}
+
+	////////////////////////////////////////////////// IGNORE PROBES
 
 	/*
 	 * Ignore children of ignored PIDs
@@ -809,6 +813,8 @@ fi
 		delete(@pid_ignore[args->pid]);
 	}
 ${FILTER_FOLLOW:+"
+	////////////////////////////////////////////////// FOLLOW PROBES
+
 	tracepoint:sched:sched_process_fork
 	/$FORK_CONDITION/
 	{
@@ -828,6 +834,8 @@ ${FILTER_FOLLOW:+"
 		delete(@follow[args->pid]);
 	}
 "}
+	////////////////////////////////////////////////// OPEN ENTER PROBES
+
 	/*
 	 * open(2)/openat(2) [enter] probes
 	 */
@@ -851,6 +859,8 @@ ${TRACE_PATHS:+`awk 'sub(/^\\\\/,"")||1' <<-TRACE_PATHS
 
 PROBE
 done )
+
+	////////////////////////////////////////////////// VFS PROBES
 
 	/*
 	 * Kernel probes
@@ -893,6 +903,8 @@ fi )
 
 PROBE
 done )
+
+	////////////////////////////////////////////////// OPEN EXIT PROBES
 
 	/*
 	 * open(2)/openat(2) [exit] probes
@@ -937,8 +949,10 @@ ${TRACE_PATHS:+`awk 'sub(/^\\\\/,"")||1' <<-TRACE_PATHS
 PROBE
 done )
 
+	////////////////////////////////////////////////// DUP PROBES
+
 	/*
-	 * dup*(2) probes
+	 * dup(2) probes
 	 */
 
 	tracepoint:syscalls:sys_enter_dup
@@ -971,6 +985,10 @@ done )
 
 	}
 
+	/*
+	 * dup2(2) probes
+	 */
+
 	tracepoint:syscalls:sys_enter_dup2
 	/@trace[pid, args->oldfd] != ""/
 	{
@@ -990,6 +1008,10 @@ done )
 		}
 	}
 
+	/*
+	 * dup3(2) probe
+	 */
+
 	tracepoint:syscalls:sys_enter_dup3
 	/@trace[pid, args->oldfd] != ""/
 	{
@@ -1008,6 +1030,8 @@ done )
 			printf("%d|%d\n", \$oldfd, \$newfd);
 		}
 	}
+
+	////////////////////////////////////////////////// CLOSE PROBES
 
 	/*
 	 * close(2) probe
@@ -1029,6 +1053,8 @@ ${TRACE_PATHS:+`cat <<TRACE_PATHS
 		printf("%d\n", \\\$fd);
 TRACE_PATHS`}
 	}
+
+	////////////////////////////////////////////////// READ PROBES
 
 	/*
 	 * Read/Write probes
@@ -1066,6 +1092,8 @@ TRACE_PATHS`}
 		printf("%d|%ld|%ld\n", \$fd, \$count, \$ret);
 	}
 
+	////////////////////////////////////////////////// WRITE PROBES
+
 	tracepoint:syscalls:sys_enter_write
 	/@trace[pid, args->fd] != ""/
 	{
@@ -1097,6 +1125,8 @@ TRACE_PATHS`}
 			\$fstype);
 		printf("%d|%ld|%ld\n", \$fd, \$count, \$ret);
 	}
+
+	////////////////////////////////////////////////// END
 
 	END {${FILTER_FOLLOW:+
 		clear(@follow);}
