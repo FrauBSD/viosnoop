@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:32:32 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:38:40 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-rc-1 $'
+VERSION='$Version: 3.0-rc-2 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1437,24 +1437,22 @@ EOF
 		user = $3 # uid.gid
 		cmd = $4
 		pid = $5
-		fstype = $6
-		if (call == "enter_open" || call == "enter_openat") {
-			if (NF < 7) next # Malformed input
-			filename = $7
-		} else if (call != "fork_job" && call != "job_exit") {
-			if (NF < 7) next # Malformed input
-			fd = $7
-		}
 	}
 
 	call == "enter_open" || call == "enter_openat" {
+		if (NF < 7) next # Malformed input
+		fstype = $6
+		filename = $7
 		if (filename != "") filename_cache[pid] = filename
 		next
 	}
 
 	call == "exit_open" || call == "exit_openat" {
 		if (NF < 8) next # Malformed input
-		if ($8 != 1) { # Ignored filesystem type
+		fstype = $6
+		fd = $7
+		trace = $8
+		if (trace != 1) { # Ignored filesystem type
 			if (show_paths)
 				delete filename_cache[pid]
 			next
@@ -1477,6 +1475,8 @@ EOF
 
 	call == "dup" {
 		if (NF < 8) next # Malformed input
+		fstype = $6
+		fd = $7
 		newfd = $8
 		if (show_paths) {
 			filename = filename_cache[key(pid, fd)]
@@ -1493,6 +1493,8 @@ EOF
 
 	call == "dup2" || call == "dup3" || call == "fcntl" {
 		if (NF < 8) next # Malformed input
+		fstype = $6
+		fd = $7
 		newfd = $8
 		if (show_paths) {
 			filename = filename_cache[key(pid, fd)]
@@ -1511,6 +1513,7 @@ EOF
 
 	call == "close" {
 		if (NF < 7) next # Malformed input
+		fstype = $6
 		fd = $7
 		if (show_paths) {
 			k = key(pid, fd)
@@ -1528,9 +1531,11 @@ EOF
 
 	call == "read" || call == "write" {
 		if (NF < 9) next # Malformed input
+		fstype = $6
+		fd = $7
+		count = $8
 		ret = $9
 		if (quiet && ret == 0) next
-		count = $8
 		if (show_paths) {
 			filename = filename_cache[key(pid, fd)]
 			emit(call == "read" ? cyan : red,
