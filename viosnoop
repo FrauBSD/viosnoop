@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:55:02 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:57:45 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-alpha-4 $'
+VERSION='$Version: 3.0-alpha-5 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -25,6 +25,7 @@ FAILURE=1
 #
 # Command-line options
 #
+COLOR=				# -c
 DEBUG=				# -d
 FILTER_FOLLOW=			# -f
 FILTER_GROUP=			# -g group
@@ -42,7 +43,6 @@ TIME_FMT="$DEFAULT_TIME_FMT"	# -t fmt
 #
 COMM=
 CONS=1
-[ -t 1 ] || CONS= # stdout is not a tty
 FILTER_GID=
 FILTER_UID=
 FOLLOW_PIDS=
@@ -70,11 +70,12 @@ die()
 	exit $FAILURE
 }
 
-if [ "$CONS" ]; then
-info(){ printf "\033[35mINFO\033[39m %s\n" "$*" >&2; }
-else
-info(){ printf "INFO %s\n" "$*" >&2; }
-fi
+info()
+{
+	[ ! "$SILENT" ] || return
+	printf "${CONS:+\033[35m}INFO${CONS:+\033[39m} %s\n" "$*" >&2
+}
+
 
 usage()
 {
@@ -83,6 +84,7 @@ usage()
 	printf "Usage: %s [OPTIONS] [comm]\n" "$pgm"
 	printf "Options:\n"
 	printf "$optfmt" "-B" "Filter on BeeGFS filesystems."
+	printf "$optfmt" "-c" "Always enabled color."
 	printf "$optfmt" "-d" "Debug. Print script and exit."
 	printf "$optfmt" "-E" "Filter on Ext filesystems."
 	printf "$optfmt" "-F" "Do not display file/directory paths."
@@ -271,9 +273,10 @@ bpf_map_ids()
 #
 # Process command-line options
 #
-while getopts BdEFfg:hNnp:qrST:t:u:vXZ flag; do
+while getopts BcdEFfg:hNnp:qrST:t:u:vXZ flag; do
 	case "$flag" in
 	B) FILTER_TYPE=beegfs ;;
+	c) COLOR=1 ;;
 	d) DEBUG=1 ;;
 	E) FILTER_TYPE=ext ;;
 	F) SHOW_PATHS= ;;
@@ -303,6 +306,15 @@ shift $(( $OPTIND - 1 ))
 # Process command-line arguments
 #
 COMM="$1"
+
+#
+# Process `-c' command-line option
+#
+if [ "$COLOR" ]; then
+	CONS=1
+else
+	[ -t 1 ] || CONS= # stdout is not a tty
+fi
 
 #
 # Process `-f' command-line option
