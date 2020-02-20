@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:06:52 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:10:59 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-alpha-8 $'
+VERSION='$Version: 3.0-alpha-9 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -496,7 +496,7 @@ fi
 			}
 			END { print substr(pids, 2) }
 			' )
-		else
+		elif [ "$COMM$FILTER_USER$FILTER_GROUP" ]; then
 			FOLLOW_PIDS=$( pgrep ${COMM:+"$COMM"} \
 				${FILTER_USER:+-U "$FILTER_USER"} \
 				${FILTER_GROUP:+-G "$FILTER_GROUP"} |
