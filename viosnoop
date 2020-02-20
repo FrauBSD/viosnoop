@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:57:45 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:01:30 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-alpha-5 $'
+VERSION='$Version: 3.0-alpha-6 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -36,6 +36,7 @@ IGNORE_RUNNING=			# -n
 QUIET=				# -q
 RAW_OUTPUT=			# -r
 SHOW_PATHS=1			# -F
+SILENT=				# -s
 TIME_FMT="$DEFAULT_TIME_FMT"	# -t fmt
 
 #
@@ -97,6 +98,7 @@ usage()
 	printf "$optfmt" "-q" "Quiet. Hide dup*, open/close, and null r/w."
 	printf "$optfmt" "-r" "Show unformatted raw output."
 	printf "$optfmt" "-S" "Filter on SMB filesystems."
+	printf "$optfmt" "-s" "Silent. Hide informational messages."
 	printf "$optfmt" "-T type" "Filter on filesystem type."
 	printf "$optfmt" "-t fmt" "Time format. Default \`$DEFAULT_TIME_FMT'."
 	printf "$optfmt" "-u user" "Filter on user. Can be name or UID."
@@ -273,7 +275,7 @@ bpf_map_ids()
 #
 # Process command-line options
 #
-while getopts BcdEFfg:hNnp:qrST:t:u:vXZ flag; do
+while getopts BcdEFfg:hNnp:qrSsT:t:u:vXZ flag; do
 	case "$flag" in
 	B) FILTER_TYPE=beegfs ;;
 	c) COLOR=1 ;;
@@ -289,6 +291,7 @@ while getopts BcdEFfg:hNnp:qrST:t:u:vXZ flag; do
 	q) QUIET=1 ;;
 	r) RAW_OUTPUT=1 ;;
 	S) FILTER_TYPE=smb ;;
+	s) SILENT=1 ;;
 	T) FILTER_TYPE="$OPTARG" ;;
 	t) TIME_FMT="$OPTARG" ;;
 	u) FILTER_USER="$OPTARG" ;;
@@ -533,6 +536,7 @@ fi
 			-v follow_pids="$FOLLOW_PIDS" \
 			-v ignore_pids="$IGNORE_PIDS" \
 			-v show_paths=${SHOW_PATHS:-0} \
+			-v silent=${SILENT:-0} \
 			-v stderr=/dev/stderr \
 			-v timefmt="$TIME_FMT" \
 		'####################################### BEGIN
@@ -601,7 +605,7 @@ fi
 
 		function info(str)
 		{
-			emit(sprintf("info|%s", str))
+			if (!silent) emit(sprintf("info|%s", str))
 		}
 
 		######################################## MAIN
@@ -1264,6 +1268,7 @@ EOF
 	-v quiet=${QUIET:-0} \
 	-v raw=${RAW_OUTPUT:-0} \
 	-v show_paths=${SHOW_PATHS:-0} \
+	-v silent=${SILENT:-0} \
 	-v stderr=/dev/stderr \
 	-v timefmt="$TIME_FMT" \
 	'################################################# BEGIN
@@ -1289,6 +1294,7 @@ EOF
 
 	function info(str)
 	{
+		if (silent) return
 		printf "%sINFO%s %s\n",
 			cons ? magenta : "", cons ? fgreset : "", str > stderr
 		fflush(stderr)
