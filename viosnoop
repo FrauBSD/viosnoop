@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:22:49 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:25:02 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-beta-6 $'
+VERSION='$Version: 3.0-beta-7 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -990,6 +990,12 @@ done )
 	 */
 
 	tracepoint:syscalls:sys_enter_dup2
+	/@trace[pid, args->newfd] != "" && args->oldfd != args->newfd/
+	{
+		delete(@trace[pid, args->newfd]);
+	}
+
+	tracepoint:syscalls:sys_enter_dup2
 	/@trace[pid, args->oldfd] != ""/
 	{
 		\$oldfd = (int64)args->oldfd;
@@ -1011,6 +1017,12 @@ done )
 	/*
 	 * dup3(2) probe
 	 */
+
+	tracepoint:syscalls:sys_enter_dup3
+	/@trace[pid, args->newfd] != "" && args->oldfd != args->newfd/
+	{
+		delete(@trace[pid, args->newfd]);
+	}
 
 	tracepoint:syscalls:sys_enter_dup3
 	/@trace[pid, args->oldfd] != ""/
