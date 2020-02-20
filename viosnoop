@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:41:00 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:44:43 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-rc-3 $'
+VERSION='$Version: 3.0 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1476,17 +1476,17 @@ EOF
 	call == "dup" {
 		if (NF < NCF + 3) next # Malformed input
 		fstype = $(NCF + 1)
-		fd = $(NCF + 2)
+		oldfd = $(NCF + 2)
 		newfd = $(NCF + 3)
 		if (show_paths) {
-			filename = filename_cache[key(pid, fd)]
+			filename = filename_cache[key(pid, oldfd)]
 			filename_cache[key(pid, newfd)] = filename
 			if (!quiet) {
 				emit(green, sprintf("dup(fd=%d <%s>) = %d",
-					fd, filename, newfd))
+					oldfd, filename, newfd))
 			}
 		} else if (!quiet) {
-			emit(green, sprintf("dup(fd=%d) = %d", fd, newfd))
+			emit(green, sprintf("dup(fd=%d) = %d", oldfd, newfd))
 		}
 		next
 	}
@@ -1494,19 +1494,19 @@ EOF
 	call == "dup2" || call == "dup3" || call == "fcntl" {
 		if (NF < NCF + 3) next # Malformed input
 		fstype = $(NCF + 1)
-		fd = $(NCF + 2)
+		oldfd = $(NCF + 2)
 		newfd = $(NCF + 3)
 		if (show_paths) {
-			filename = filename_cache[key(pid, fd)]
+			filename = filename_cache[key(pid, oldfd)]
 			filename_cache[key(pid, newfd)] = filename
 			if (!quiet) {
 				emit(green,
 					sprintf("%s(oldfd=%d <%s>, newfd=%d)",
-					call, fd, filename, newfd))
+					call, oldfd, filename, newfd))
 			}
 		} else if (!quiet) {
 			emit(green, sprintf("%s(oldfd=%d, newfd=%d)",
-				call, fd, newfd))
+				call, oldfd, newfd))
 		}
 		next
 	}
