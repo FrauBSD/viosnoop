@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:04:48 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:06:52 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-alpha-7 $'
+VERSION='$Version: 3.0-alpha-8 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -327,9 +327,11 @@ fi
 #
 # Process `-f' command-line option
 #
-[ ! "$FILTER_FOLLOW" ] ||
+if [ "$FILTER_FOLLOW" ]; then
 	[ "$COMM$FILTER_GROUP$FILTER_PID$FILTER_USER" ] ||
-	die "\`-f' requires \`-u user', \`-g group', \`-p pid', or \`comm'"
+		die "\`-f' requires \`%s', \`%s', \`%s', or \`%s'" \
+			"-u user" "-g group" "-p pid" "comm"
+fi
 
 #
 # Process `-F' and `-q' command-line options
