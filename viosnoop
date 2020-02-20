@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:44:43 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:46:21 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0 $'
+VERSION='$Version: 3.1-rc-1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1307,7 +1307,7 @@ EOF
 			}
 		}
 
-		' | bpftool batch file /dev/stdin
+		' | bpftool batch file /dev/stdin > /dev/null
 		count -s cnt $OPEN_FDS
 		info "Loaded $cnt fds into bpftrace map" \
 			"(pid $pid, prog $prog_id, map $MAP_ID_TRACE)"
@@ -1323,7 +1323,7 @@ EOF
 			num2bytes 1    8B map_value
 			echo map update id $MAP_ID_FOLLOW \
 				key $map_key value $map_value
-		done | bpftool batch file /dev/stdin
+		done | bpftool batch file /dev/stdin > /dev/null
 		info "Loaded $cnt pids into bpftrace map" \
 			"(pid $pid, prog $prog_id, map $MAP_ID_FOLLOW)"
 	fi
