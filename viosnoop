@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:51:36 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:53:05 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-alpha-1 $'
+VERSION='$Version: 3.0-alpha-2 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -508,7 +508,8 @@ fi
 	# Find open *file* descriptors
 	#
 	if [ ! "$IGNORE_RUNNING$DEBUG" ]; then
-		info "Gathering open file-descriptor info..."
+		info "Gathering open file-descriptor info" \
+		     "(this may take a while)..."
 		OPEN_FDS=$( run_lsof | awk \
 			-v comm="$COMM" \
 			-v debug=${DEBUG:-0} \
