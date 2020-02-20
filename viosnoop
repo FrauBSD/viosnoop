@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:45:45 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:51:36 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 2.0 $'
+VERSION='$Version: 3.0-alpha-1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -191,41 +191,6 @@ num2bytes()
 		__size=$(( $__size - 1 ))
 	done
 	__out="${__out# }"
-	if [ "$__var_to_set" ]; then
-		eval $__var_to_set=\"\$__out\"
-	else
-		echo "$__out"
-	fi
-}
-
-str2bytes()
-{
-	local __str="$1" __var_to_set="$2"
-	local __out
-
-	__out=$( echo "$__str" | awk -v max=${BPFTRACE_STRLEN:-64} '
-		BEGIN {
-			delete asc
-			for (n = 1; n <= 255; n++)
-				asc[sprintf("%c", n)] = n
-			delete chars
-		}
-		{ buf = buf "\n" $0 }
-		END {
-			buf = substr(buf, 2, max)
-			nchars = split(buf, chars, "")
-			for (n = 1; n <= nchars; n++) {
-				char = chars[n]
-				if (char == "") continue
-				max--
-				out = out " " asc[char]
-			}
-			while (max-- > 0)
-				out = out " 0"
-			print substr(out, 2)
-		}
-	' )
-
 	if [ "$__var_to_set" ]; then
 		eval $__var_to_set=\"\$__out\"
 	else
@@ -1167,23 +1132,98 @@ EOF
 	fi
 
 	#
-	# Update map entries
+	# Update open file descriptor map
 	#
 	if [ "$OPEN_FDS" -a "$MAP_ID_TRACE" ]; then
+		echo "$OPEN_FDS" | awk -v map_id="$MAP_ID_TRACE" '
+		######################################## BEGIN
+
+		BEGIN {
+			nopen = 0
+			delete open_pid
+			delete open_fd
+			delete open_type
+
+			str_max = ENVIRON["BPFTRACE_STRLEN"]
+			if (str_max == "") str_max = 64
+
+			delete asc
+			for (n = 0; n <= 255; n++)
+				asc[sprintf("%c", n)] = n
+		}
+
+		######################################## FUNCTIONS
+
+		function num2bytes(num, size,        buf)
+		{
+			buf = ""
+			sub(/B$/, "", size)
+			while (size > 0) {
+				buf = buf " " (num % 256)
+				num = rshift(num, 8)
+				size--
+			}
+			return substr(buf, 2)
+		}
+
+		function str2bytes(str,        buf, chars, nchars, char, n, p)
+		{
+			buf = ""
+			p = str_max
+			delete chars
+			str = substr(str, 1, str_max)
+			nchars = split(str, chars, "")
+			for (n = 1; n <= nchars; n++) {
+				char = chars[n]
+				p--
+				buf = buf " " asc[char]
+			}
+			while (p-- > 0)
+				buf = buf " 0"
+			return substr(buf, 2)
+		}
+
+		######################################## MAIN
+
+		nitems = split($0, list) {
+			for (n = 1; n <= nitems; n++) {
+				pid_fd_type = list[n]
+				if (pid_fd_type == "") continue
+				nopen++
+				split(pid_fd_type, open, /:/)
+				open_pid[nopen] = open[1]
+				open_fd[nopen] = open[2]
+				open_type[nopen] = open[3]
+			}
+		}
+
+		######################################## END
+
+		END {
+			for (n = 1; n <= nopen; n++) {
+				pid = open_pid[n]
+				fd = open_fd[n]
+				type = open_type[n]
+
+				key = sprintf("%s %s",
+					num2bytes(pid, "8B"),
+					num2bytes(fd, "8B"))
+				value = str2bytes(type)
+
+				printf "map update id %d key %s value %s\n",
+					map_id, key, value
+			}
+		}
+
+		' | bpftool batch file /dev/stdin
 		count -s cnt $OPEN_FDS
-		for pid_fd_type in $OPEN_FDS; do
-			getword -w 1 -s pid  -d : $pid_fd_type
-			getword -w 2 -s fd   -d : $pid_fd_type
-			getword -w 3 -s type -d : $pid_fd_type
-			num2bytes $pid 8B map_pid
-			num2bytes $fd 8B map_fd
-			str2bytes $type map_value
-			echo map update id $MAP_ID_TRACE \
-				key $map_pid $map_fd value $map_value
-		done | bpftool batch file /dev/stdin
 		info "Loaded $cnt fds into bpftrace map" \
 			"(pid $pid, prog $prog_id, map $MAP_ID_TRACE)"
 	fi
+
+	#
+	# Update follow map
+	#
 	if [ "$FOLLOW_PIDS" -a "$MAP_ID_FOLLOW" ]; then
 		count -s cnt $FOLLOW_PIDS
 		for pid in $FOLLOW_PIDS; do
