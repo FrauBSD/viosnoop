@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-16 20:51:25 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:45:45 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 1.0.3 $'
+VERSION='$Version: 2.0 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -47,11 +47,15 @@ FILTER_GID=
 FILTER_UID=
 FOLLOW_PIDS=
 FORK_CONDITION=
+IGNORE_PIDS=
 MAP_ID_FOLLOW=
 MAP_ID_TRACE=
 OPEN_CONDITION=
 OPEN_FDS=
+POSTPROC_PID=
+PREPROC_PID=
 RAW_TIME_FMT='"%s"'
+SSHD_PID=
 TRACE_PATHS=1
 
 ############################################################ FUNCTIONS
@@ -411,6 +415,35 @@ fi
 	set -m
 
 	#
+	# Get process IDs
+	#
+	PREPROC_PID=$( ps -o{pid,ppid,ucomm}= |
+		awk -v pid=$$ '$2==pid{print $1;exit}' )
+	POSTPROC_PID=$( pgrep -P $$ awk )
+
+	#
+	# Get sshd parent process ID if-applicable
+	#
+	pid=$PPID
+	while [ $pid -gt 1 ]; do
+		pid=$( ps -o ppid= -p $pid 2> /dev/null )
+		case "$( ps -o ucomm= -p $pid 2> /dev/null )" in
+		sshd)
+			SSHD_PID=$pid
+			break
+			;;
+		esac
+	done
+
+	#
+	# Ignore ourself
+	#
+	for pid in $$ $PREPROC_PID $POSTPROC_PID $SSHD_PID; do
+		IGNORE_PIDS="$IGNORE_PIDS $pid"
+	done
+	IGNORE_PIDS="${IGNORE_PIDS# }"
+
+	#
 	# Find matching processes and their children
 	#
 	if [ "$FILTER_FOLLOW" -a ! "$IGNORE_RUNNING$DEBUG" ]; then
@@ -520,12 +553,16 @@ fi
 			-v filter_type="$FILTER_TYPE" \
 			-v filter_user="$FILTER_USER" \
 			-v follow_pids="$FOLLOW_PIDS" \
+			-v ignore_pids="$IGNORE_PIDS" \
 			-v show_paths=${SHOW_PATHS:-0} \
 			-v stderr=/dev/stderr \
 			-v timefmt="$TIME_FMT" \
 		'####################################### BEGIN
 
 		BEGIN {
+			(cmd = "echo $PPID") | getline mypid
+			close(cmd)
+
 			if (timefmt != "") {
 				srand()
 				time = srand()
@@ -563,6 +600,13 @@ fi
 				mount_type[nmounts] = root_mount_type
 			}
 
+			delete pids_ignore
+			nignore = split(ignore_pids, list)
+			for (n = 1; n <= nignore; n++) {
+				pid = list[n]
+				pids_ignore[pid]
+			}
+
 			delete seen
 		}
 
@@ -592,6 +636,8 @@ fi
 			line = $0
 			cmd  = $1
 			pid  = $2
+			if (pid == mypid) next
+			if (pid in pids_ignore) next
 			if ($3 ~ /^[0-9]/) {
 				tid  = $3
 				user = 4
@@ -751,7 +797,28 @@ fi
 		delete(@trace[-1,-1]); // Delete dummy entry
 
 		${FILTER_FOLLOW:+@follow[-1] = 1;
-		delete(@follow[-1]);}
+		delete(@follow[-1]);
+
+		}@pid_ignore[$$] = 1;
+		@pid_ignore[$PREPROC_PID] = 1;
+		@pid_ignore[$POSTPROC_PID] = 1;${SSHD_PID:+
+		@pid_ignore[$SSHD_PID] = 1;}
+	}
+
+	/*
+	 * Ignore children of ignored PIDs
+	 */
+
+	tracepoint:sched:sched_process_fork
+	/@pid_ignore[args->parent_pid]/
+	{
+		@pid_ignore[args->child_pid] = 1;
+	}
+
+	tracepoint:sched:sched_process_exit
+	/@pid_ignore[args->pid]/
+	{
+		delete(@pid_ignore[args->pid]);
 	}
 ${FILTER_FOLLOW:+"
 	tracepoint:sched:sched_process_fork
@@ -1046,6 +1113,7 @@ TRACE_PATHS`}
 	END {${FILTER_FOLLOW:+
 		clear(@follow);}
 		clear(@dup_fd);
+		clear(@pid_ignore);
 		clear(@read_count);
 		clear(@read_exit);
 		clear(@read_fd);
