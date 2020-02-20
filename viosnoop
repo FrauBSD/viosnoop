@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:16:06 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:17:34 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-beta-3 $'
+VERSION='$Version: 3.0-beta-4 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -758,12 +758,7 @@ fi
 		condition="$condition && uid == $FILTER_UID"
 	fi
 	if [ "$FILTER_PID" ]; then
-		if [ "$FILTER_FOLLOW" ]; then
-			condition="pid == $FILTER_PID || (${condition# && })"
-			condition="${condition% || ()}"
-		else
-			condition="$condition && pid == $FILTER_PID"
-		fi
+		condition="$condition && pid == $FILTER_PID"
 	fi
 	condition="${condition# && }"
 	if [ "$FILTER_FOLLOW" ]; then
