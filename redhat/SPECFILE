@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop
 License: BSD
-Version: 1.0.3
+Version: 3.1
 Release: 1
 Buildarch: noarch
 
@@ -78,6 +78,32 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
+* Sun Feb 16 2020 Devin Teske <dteske@fraubsd.org> 3.1-1
+- 545e44c Improve wait time when bpftool is required
+- c7a28ea Hide bpftool messages about updated entries
+- bd73704 Change variable name for readability [3.0]
+- f33b236 Define column indices as base offsets
+- 300caac Define more-explicitly each call's additional fields
+- 1eb64f9 Fix memory leaks
+- 135cf7b Add support for fcntl(2) based fd dup
+- 036a7bc Do not waste cycles on no-op fd dup scenarios
+- bab0e28 Handle fd "stomping" by clearing trace on fd overwrite
+- d1830ec Prevent reporting on NULL pathnames on open
+- b548b43 Comments
+- 29589ed Fix `-fp pid' to ignore processes matching other filters
+- 9f7d05b Fix conditional ignoring of self-induced events
+- a276a67 Ignore paths from lsof that do not begin with / [pedantic]
+- e46e960 Use emit() in open fd scan
+- 6c24433 Fix `-f' to work with internal flags
+- de9c3e7 Style
+- 3b0ac4b Add ability to pass warnings to user
+- e7eac4e Add `-s' to silence info msgs
+- eb4ecb5 Add `-c' to always enable color
+- caafc79 Make lsof fast
+- 1935906 Make lsof not list TCP/UDP connections
+- 474cb46 Mention that lsof step may take a while
+- 9e854f6 Fix bpftool map update for 200k+ open files [3.0-alpha-1]
+- a2d673d Ignore self-induced events [2.0]
 * Sun Feb 16 2020 Devin Teske <dteske@fraubsd.org> 1.0.3-1
 - ffb2b33 Whitespace
 * Sun Feb 16 2020 Devin Teske <dteske@fraubsd.org> 1.0.2-1
