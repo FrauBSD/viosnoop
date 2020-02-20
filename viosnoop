@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:54:07 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 17:55:02 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-alpha-3 $'
+VERSION='$Version: 3.0-alpha-4 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -114,7 +114,7 @@ run_lsof()
 
 	case "$FILTER_TYPE" in
 	nfs*) : skip ;;
-	*) lsof -X +c 0
+	*) lsof -X +c 0 +e /
 	esac
 }
 
