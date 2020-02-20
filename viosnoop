@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:27:34 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:29:13 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-beta-8 $'
+VERSION='$Version: 3.0-beta-9 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1037,6 +1037,39 @@ done )
 		printf("%d|%d\n", \$oldfd, \$newfd);
 	}
 
+	/*
+	 * fcntl(2) probe
+	 */
+
+	tracepoint:syscalls:sys_enter_fcntl
+	/args->cmd == F_DUPFD && args->fd != args->arg &&
+	 @trace[pid, args->arg] != ""/
+	{
+		delete(@trace[pid, args->arg]);
+	}
+
+	tracepoint:syscalls:sys_enter_fcntl
+	/args->cmd == F_DUPFD && args->fd != args->arg &&
+	 @trace[pid, args->fd] != ""/
+	{
+		\$oldfd = (int64)args->fd;
+		\$newfd = (int64)args->arg;
+		\$job_pid = @is_sge_job[pid];
+
+		if (\$oldfd != \$newfd)
+		{
+			// Set flag to trace read/write on fd
+			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
+
+			${TIME_FMT:+time($RAW_TIME_FMT);
+			}printf("|fcntl|%d.%d|%s|%d|%d|%s|",
+				uid, gid, comm, pid,
+				\$job_pid,
+				@trace[pid, \$newfd]);
+			printf("%d|%d\n", \$oldfd, \$newfd);
+		}
+	}
+
 	////////////////////////////////////////////////// CLOSE PROBES
 
 	/*
@@ -1456,7 +1489,7 @@ EOF
 		next
 	}
 
-	call == "dup2" || call == "dup3" {
+	call == "dup2" || call == "dup3" || call == "fcntl" {
 		if (NF < 8) next # Malformed input
 		newfd = $8
 		if (show_paths) {
