@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:01:30 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:04:48 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.0-alpha-6 $'
+VERSION='$Version: 3.0-alpha-7 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -77,6 +77,11 @@ info()
 	printf "${CONS:+\033[35m}INFO${CONS:+\033[39m} %s\n" "$*" >&2
 }
 
+warn()
+{
+	[ ! "$SILENT" ] || return
+	printf "${CONS:+\033[31;1m}WARNING${CONS:+\033[39;22m} %s\n" "$*" >&2
+}
 
 usage()
 {
@@ -98,7 +103,7 @@ usage()
 	printf "$optfmt" "-q" "Quiet. Hide dup*, open/close, and null r/w."
 	printf "$optfmt" "-r" "Show unformatted raw output."
 	printf "$optfmt" "-S" "Filter on SMB filesystems."
-	printf "$optfmt" "-s" "Silent. Hide informational messages."
+	printf "$optfmt" "-s" "Silent. Hide informational messages/warnings."
 	printf "$optfmt" "-T type" "Filter on filesystem type."
 	printf "$optfmt" "-t fmt" "Time format. Default \`$DEFAULT_TIME_FMT'."
 	printf "$optfmt" "-u user" "Filter on user. Can be name or UID."
@@ -606,6 +611,11 @@ fi
 		function info(str)
 		{
 			if (!silent) emit(sprintf("info|%s", str))
+		}
+
+		function warn(str)
+		{
+			if (!silent) emit(sprintf("warn|%s", str))
 		}
 
 		######################################## MAIN
@@ -1276,8 +1286,11 @@ EOF
 	BEGIN {
 		exit_status = 0 # SUCCESS
 
+		bold    = "\033[1m"
+		nobold  = "\033[22m"
 		red     = "\033[31m"
 		green   = "\033[32m"
+		yellow  = "\033[33m"
 		magenta = "\033[35m"
 		cyan    = "\033[36m"
 		fgreset = "\033[39m"
@@ -1297,6 +1310,14 @@ EOF
 		if (silent) return
 		printf "%sINFO%s %s\n",
 			cons ? magenta : "", cons ? fgreset : "", str > stderr
+		fflush(stderr)
+	}
+
+	function warn(str)
+	{
+		if (silent) return
+		printf "%sWARNING%s %s\n", cons ? yellow bold : "",
+			cons ? fgreset nobold : "", str > stderr
 		fflush(stderr)
 	}
 
@@ -1332,11 +1353,14 @@ EOF
 	{ call = $2 }
 
 	# Message passing
-	call == "info" {
+	call == "info" || call == "warn" {
 		msg = $0
 		for (n = 1; n <= 2; n++)
 			sub(/^[^|]*\|/, "", msg)
-		info(msg)
+		if (call == "info")
+			info(msg)
+		else if (call == "warn")
+			warn(msg)
 		next
 	}
 
