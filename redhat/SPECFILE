@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop
 License: BSD
-Version: 3.1
+Version: 3.2
 Release: 1
 Buildarch: noarch
 
@@ -78,6 +78,13 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
+* Fri Feb 21 2020 Devin Teske <dteske@fraubsd.org> 3.2-1
+- 60a5d81 Fix stack limitation with work-around
+- c966014 Fix parsing of lsof columns
+- 3a43759 Fix lsof filtering with -g group
+- 9f20225 Fix getent error checking
+- 460efab Fix awk syntax error when -g is used
+- 0d210ab Comments
 * Sun Feb 16 2020 Devin Teske <dteske@fraubsd.org> 3.1-1
 - 545e44c Improve wait time when bpftool is required
 - c7a28ea Hide bpftool messages about updated entries
