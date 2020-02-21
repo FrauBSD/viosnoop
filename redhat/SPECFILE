@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop
 License: BSD
-Version: 3.2
+Version: 3.3
 Release: 1
 Buildarch: noarch
 
@@ -78,6 +78,8 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
+* Fri Feb 21 2020 Devin Teske <dteske@fraubsd.org> 3.3-1
+- 2001ff9 Fix handling of lsof with 6-digit PIDs/TIDs
 * Fri Feb 21 2020 Devin Teske <dteske@fraubsd.org> 3.2-1
 - 60a5d81 Fix stack limitation with work-around
 - c966014 Fix parsing of lsof columns
