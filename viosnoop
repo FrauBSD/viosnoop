@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-21 00:28:50 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-21 01:29:13 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.2 $'
+VERSION='$Version: 3.3 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -651,13 +651,7 @@ fi
 				} else if (n == 2) { # Second col
 					# NB: Right-justified
 					match($0, " " col " ")
-					startcol[col] = RSTART - 1
-					colwidth[col] = RLENGTH
-				} else if (col == "FD") {
-					# NB: Right-justified
-					# NB: Possible 1B overflow
-					match($0, " " col " ")
-					startcol[col] = RSTART - 1
+					startcol[col] = RSTART - 2
 					colwidth[col] = RLENGTH + 1
 				} else if (n == ncols) { # Last col
 					# NB: Left-justified
@@ -671,6 +665,8 @@ fi
 					match($0, " " col " ")
 					colwidth[col] = RSTART + RLENGTH - 1
 					colwidth[col] -= startcol[col]
+					# NB: FD column has 1B tag
+					if (col == "FD") colwidth[col]++
 				}
 			}
 			lastcol = col
