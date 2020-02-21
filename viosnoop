@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-21 00:21:17 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-21 00:23:30 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.2-beta-3 $'
+VERSION='$Version: 3.2-beta-4 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -536,7 +536,7 @@ fi
 			-v comm="$COMM" \
 			-v debug=${DEBUG:-0} \
 			-v filter_follow=${FILTER_FOLLOW:-0} \
-			-v filter_group="$FILTER_GROUP" \
+			-v filter_gid="$FILTER_GID" \
 			-v filter_pid="$FILTER_PID" \
 			-v filter_type="$FILTER_TYPE" \
 			-v filter_user="$FILTER_USER" \
@@ -693,18 +693,18 @@ fi
 				}
 
 				# group filter
-				if (filter_group != "") {
+				if (filter_gid != "") {
 					gid = ""
 					file = sprintf("/proc/%d/status", pid)
 					while (getline L < file > 0) {
-						if (L !~ /^Gid:/) next
+						if (L !~ /^Gid:/) continue
 						sub(/^Gid:[[:space:]]*/, "", L)
 						sub(/[^0-9].*/, "", L)
 						gid = L
 						break
 					}
 					close(file)
-					if (gid != filter_group) next
+					if (gid != filter_gid) next
 				}
 			}
 
