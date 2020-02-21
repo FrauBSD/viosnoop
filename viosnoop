@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-19 18:48:25 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-21 00:12:24 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.1 $'
+VERSION='$Version: 3.2-beta-1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -341,7 +341,7 @@ if [ "$QUIET" -a ! "$SHOW_PATHS" ]; then
 fi
 
 #
-# Process user/group options
+# Process `-u user'/`-g group' options
 #
 case "$FILTER_USER" in
 "") : leave-empty ;;
@@ -622,7 +622,7 @@ fi
 
 		######################################## MAIN
 
-		# Skip header
+		# Header
 		$1 == "COMMAND" && $2 == "PID" && $NF == "NAME" { next }
 
 		# Parse fields
