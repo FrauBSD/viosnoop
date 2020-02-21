@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-21 00:16:49 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-21 00:21:17 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.2-beta-2 $'
+VERSION='$Version: 3.2-beta-3 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -346,28 +346,28 @@ fi
 case "$FILTER_USER" in
 "") : leave-empty ;;
 *[!0-9]*) # Translate from name to UID
-	FILTER_UID=$(
-		getent passwd "$FILTER_USER" | awk -F: '{print $3}'
-	) || exit
+	FILTER_UID=$( getent passwd "$FILTER_USER" ) ||
+		die "Unknown user \`%s'" "$FILTER_USER"
+	FILTER_UID=$( echo "$FILTER_UID" | awk -F: '{print $3}' )
 	;;
 *) # Translate from UID to name
 	FILTER_UID=$FILTER_USER
-	FILTER_USER=$(
-		getent passwd $FILTER_UID | awk -F: '{print $1}'
-	) || exit
+	FILTER_USER=$( getent passwd $FILTER_UID ) ||
+		die "Unknown user id %d" "$FILTER_UID"
+	FILTER_USER=$( echo "$FILTER_USER" | awk -F: '{print $1}' )
 esac
 case "$FILTER_GROUP" in
 "") : leave-empty ;;
 *[!0-9]*) # Translate from name to GID
-	FILTER_GID=$(
-		getent group "$FILTER_GROUP" | awk -F: '{print $3}'
-	) || exit
+	FILTER_GID=$( getent group "$FILTER_GROUP" ) ||
+		die "Unknown group \`%s'" "$FILTER_GROUP"
+	FILTER_GID=$( echo "$FILTER_GID" | awk -F: '{print $3}' )
 	;;
 *) # Translate from GID to name
 	FILTER_GID=$FILTER_GROUP
-	FILTER_GROUP=$(
-		getent group $FILTER_GID | awk -F: '{print $1}'
-	) || exit
+	FILTER_GROUP=$( getent group $FILTER_GID ) ||
+		die "Unknown group id %d" "$FILTER_GID"
+	FILTER_GROUP=$( echo "$FILTER_GROUP" | awk -F: '{print $1}' )
 esac
 
 #
