@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-21 00:23:30 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-21 00:26:39 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.2-beta-4 $'
+VERSION='$Version: 3.2-beta-5 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -620,40 +620,88 @@ fi
 			if (!silent) emit(sprintf("warn|%s", str))
 		}
 
+		function getcol(name,        start, width, val)
+		{
+			start = startcol[name]
+			width = colwidth[name]
+			if (start < 1) return ""
+			if (name == lastcol)
+				val = substr($0, start)
+			else
+				val = substr($0, start, width)
+			gsub(/(^[[:space:]]+|[[:space:]]+$)/, "", val)
+			return val
+		}
+
 		######################################## MAIN
 
 		# Header
-		$1 == "COMMAND" && $2 == "PID" && $NF == "NAME" { next }
+		$1 == "COMMAND" && $2 == "PID" && $NF == "NAME" {
+			delete cols
+			delete startcol
+			delete colwidth
+			ncol = split($0, cols, /[[:space:]]+/)
+			for (n = 1; n <= ncol; n++) {
+				col = cols[n]
+				if (n == 1) { # First col
+					# NB: Left-justified
+					match($0, /^[^ ]+ +/)
+					startcol[col] = RSTART
+					colwidth[col] = RLENGTH - 3
+				} else if (n == 2) { # Second col
+					# NB: Right-justified
+					match($0, " " col " ")
+					startcol[col] = RSTART - 1
+					colwidth[col] = RLENGTH
+				} else if (col == "FD") {
+					# NB: Right-justified
+					# NB: Possible 1B overflow
+					match($0, " " col " ")
+					startcol[col] = RSTART - 1
+					colwidth[col] = RLENGTH + 1
+				} else if (n == ncols) { # Last col
+					# NB: Left-justified
+					match($0, / [^ ]+$/)
+					startcol[col] = RSTART + 1
+				} else {
+					# NB: Right-justified
+					pcol = cols[n - 1]
+					startcol[col] = startcol[pcol]
+					startcol[col] += colwidth[pcol] + 1
+					match($0, " " col " ")
+					colwidth[col] = RSTART + RLENGTH - 1
+					colwidth[col] -= startcol[col]
+				}
+			}
+			lastcol = col
+			next
+		}
 
 		# Parse fields
 		{
-			line = $0
-			cmd  = $1
-			pid  = $2
+			cmd  = getcol("COMMAND")
+			pid  = getcol("PID")
+			tid  = getcol("TID")
+			user = getcol("USER")
+			fd   = getcol("FD")
+			type = getcol("TYPE")
+			dev  = getcol("DEVICE")
+			size = getcol("SIZE/OFF")
+			node = getcol("NODE")
+			name = getcol("NAME")
+
+			# Treat effects of "lsof +e /"
+			sub(/^UNKN/, "", type)
+			sub(" \\(\\+e /\\)$", "", name)
+
 			if (pid == mypid) next
 			if (pid in pids_ignore) next
-			if ($3 ~ /^[0-9]/) {
-				tid  = $3
-				user = 4
-			} else {
-				user = 3
-			}
-			fd   = $(user + 1)
 			if (fd !~ /^[0-9]/) next
-			type = $(user + 2)
-			dev  = $(user + 3)
-			size = $(user + 4)
-			node = $(user + 5)
-			name = user + 6
-			user = $user
-			while (--name > 0)
-				sub(/^[^[:space:]]+[[:space:]]+/, "")
-			name = $0
-			$0 = line
 		}
 
-		name ~ "^/" && type != "DIR" && fd ~ /^[0-9]+[rwu-]$/ {
+		name ~ "^/" && type != "DIR" && fd ~ /^[0-9]+[rwu-]?$/ {
 
+			sub(/[rwu-]$/, "", fd)
 			if (key(pid, fd) in seen) next
 
 			matched = 0
@@ -712,13 +760,10 @@ fi
 			# Send information to post-processor about open
 			# file-descriptor matching search criterion.
 			#
-			filename = $0
-			sub("^[^/]*/", "/", filename)
-			sub(/ \([^)]+\)$/, "", filename)
 			if (show_paths) {
 				emit(sprintf("enter_open|%s|%s|%d|%s|%s",
 					user, cmd, pid,
-					mnt_type, filename))
+					mnt_type, name))
 			}
 			emit(sprintf("exit_open|%s|%s|%d|%s|%d|1",
 				user, cmd, pid,
