@@ -78,7 +78,7 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
-* Fri Feb 21 2020 Devin Teske <dteske@fraubsd.org> 3.4-1
+* Sun Feb 23 2020 Devin Teske <dteske@fraubsd.org> 3.4-1
 - c27aae7 Fix handling of ^Z to suspend
 * Fri Feb 21 2020 Devin Teske <dteske@fraubsd.org> 3.3-1
 - 2001ff9 Fix handling of lsof with 6-digit PIDs/TIDs
