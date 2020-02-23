@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop
 License: BSD
-Version: 3.4
+Version: 3.4.1
 Release: 1
 Buildarch: noarch
 
@@ -78,6 +78,8 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
+* Sun Feb 23 2020 Devin Teske <dteske@fraubsd.org> 3.4.1-1
+- 1f0ebcc Fix bpftrace exit status handling
 * Sun Feb 23 2020 Devin Teske <dteske@fraubsd.org> 3.4-1
 - c27aae7 Fix handling of ^Z to suspend
 * Fri Feb 21 2020 Devin Teske <dteske@fraubsd.org> 3.3-1
