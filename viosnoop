@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-23 14:40:55 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-02-23 15:05:27 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.4 $'
+VERSION='$Version: 3.4.1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1372,7 +1372,7 @@ EOF
 	# Bring bpftrace child back to the foreground
 	#
 	wait $pid > /dev/null 2>&1 # Collect exit status
-	echo EXIT:$? >&9 # Send status to post-processor
+	echo EXIT:$? # Send status to post-processor
 
 } | awk -F'|' \
 	-v cons=${CONS:-0} \
