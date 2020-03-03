@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-02-23 15:05:27 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-03-03 12:37:03 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.4.1 $'
+VERSION='$Version: 3.4.2 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1091,7 +1091,6 @@ done )
 	{
 		\$oldfd = (int64)args->fd;
 		\$newfd = (int64)args->arg;
-		\$job_pid = @is_sge_job[pid];
 
 		if (\$oldfd != \$newfd)
 		{
@@ -1099,9 +1098,8 @@ done )
 			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
 			${TIME_FMT:+time($RAW_TIME_FMT);
-			}printf("|fcntl|%d.%d|%s|%d|%d|%s|",
+			}printf("|fcntl|%d.%d|%s|%d|%s|",
 				uid, gid, comm, pid,
-				\$job_pid,
 				@trace[pid, \$newfd]);
 			printf("%d|%d\n", \$oldfd, \$newfd);
 		}
