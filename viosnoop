@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-03-03 12:37:03 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-03-03 13:30:16 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 3.4.2 $'
+VERSION='$Version: 4.0 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -830,45 +830,49 @@ fi
 		@pid_ignore[$SSHD_PID] = 1;}
 	}
 
-	////////////////////////////////////////////////// IGNORE PROBES
-
-	/*
-	 * Ignore children of ignored PIDs
-	 */
+	////////////////////////////////////////////////// FORK PROBE
 
 	tracepoint:sched:sched_process_fork
-	/@pid_ignore[args->parent_pid]/
 	{
-		@pid_ignore[args->child_pid] = 1;
+		\$parent_pid = args->parent_pid;
+		\$child_pid = args->child_pid;
+
+		//
+		// Flag ignore-children
+		//
+		if (@pid_ignore[\$parent_pid]) {
+			@pid_ignore[\$child_pid] = 1;
+		}
+
+		${FILTER_FOLLOW:+"
+		//
+		// Flag follow-children
+		//
+		if ($FORK_CONDITION) {
+			@follow[args->parent_pid] = 1;
+			@follow[args->child_pid] = 1;
+		}
+		if (@follow[args->parent_pid]) {
+			@follow[args->child_pid] = 1;
+		}
+		"}
 	}
+
+	////////////////////////////////////////////////// EXIT PROBE
 
 	tracepoint:sched:sched_process_exit
-	/@pid_ignore[args->pid]/
 	{
-		delete(@pid_ignore[args->pid]);
-	}
-${FILTER_FOLLOW:+"
-	////////////////////////////////////////////////// FOLLOW PROBES
+		\$pid = args->pid;
 
-	tracepoint:sched:sched_process_fork
-	/$FORK_CONDITION/
-	{
-		@follow[args->parent_pid] = 1;
-		@follow[args->child_pid] = 1;
+		//
+		// Free flags
+		//
+
+		delete(@pid_ignore[\$pid]);
+
+		${FILTER_FOLLOW:+delete(@follow[\$pid]);}
 	}
 
-	tracepoint:sched:sched_process_fork
-	/@follow[args->parent_pid]/
-	{
-		@follow[args->child_pid] = 1;
-	}
-
-	tracepoint:sched:sched_process_exit
-	/@follow[args->pid]/
-	{
-		delete(@follow[args->pid]);
-	}
-"}
 	////////////////////////////////////////////////// OPEN ENTER PROBES
 
 	/*
@@ -877,13 +881,14 @@ ${FILTER_FOLLOW:+"
 
 $( for func in sys_enter_open sys_enter_openat; do
 	name=${func#*enter_}
-	printf "\ttracepoint:syscalls:%s\n" $func
 cat <<PROBE
+	tracepoint:syscalls:$func
 	${OPEN_CONDITION:+/$OPEN_CONDITION/
 	}{
+		// Free vfs_open flags
 		if (str(args->filename) != "") {
-			delete(@vfs_${name}_trace[tid]); // Flag from vfs_open
-			@vfs_$name[tid] = 1; // Flag for vfs_open
+			delete(@vfs_${name}_trace[tid]);
+			@vfs_$name[tid] = 1;
 
 ${TRACE_PATHS:+`awk 'sub(/^\\\\/,"")||1' <<-TRACE_PATHS
 \			${TIME_FMT:+time($RAW_TIME_FMT);
@@ -897,22 +902,14 @@ ${TRACE_PATHS:+`awk 'sub(/^\\\\/,"")||1' <<-TRACE_PATHS
 PROBE
 done )
 
-	////////////////////////////////////////////////// VFS PROBES
+	////////////////////////////////////////////////// VFS_OPEN PROBE
 
 	/*
-	 * Kernel probes
 	 * NB: vfs_open() always called after open(2)/openat(2)
 	 */
 
-$( for func in sys_enter_open sys_enter_openat; do
-	name=${func#*enter_}
-	exit_func=${func%%enter_*}exit_$name
-cat <<PROBE
 	kprobe:vfs_open
-	/@vfs_$name[tid]/
 	{
-		delete(@vfs_$name[tid]); // Flag from $func
-
 		//
 		// Extract the filesystem type from mount superblock
 		//
@@ -922,24 +919,31 @@ cat <<PROBE
 		\$type = (struct file_system_type *)\$mnt_sb->s_type;
 		\$fstype = \$type->name;
 
-		//
-		// Test filesystem type (for $exit_func)
-		//
-$( if [ "$FILTER_TYPE" ]; then
-		awk 'sub(/^\\/,"")||1' <<-FILTER_TYPE
-\		if (str(\$fstype, ${#FILTER_TYPE}) == "$FILTER_TYPE") {
-\			@vfs_${name}_trace[tid] = str(\$fstype);
-\		}
-		FILTER_TYPE
-else
-		awk 'sub(/^\\/,"")||1' <<-FILTER_TYPE
-\		@vfs_${name}_trace[tid] = str(\$fstype);
-		FILTER_TYPE
-fi )
-	}
+$( for func in sys_enter_open sys_enter_openat; do
+	name=${func#*enter_}
+	exit_func=${func%%enter_*}exit_$name
+cat <<PROBE
+		if (@vfs_$name[tid]) {
+			delete(@vfs_$name[tid]); // Flag from $func
 
+			//
+			// Test filesystem type (for $exit_func)
+			//
+$( if [ "$FILTER_TYPE" ]; then
+			awk 'sub(/^\\/,"")||1' <<-FILTER_TYPE
+\			if (str(\$fstype, ${#FILTER_TYPE}) == "$FILTER_TYPE") {
+\				@vfs_${name}_trace[tid] = str(\$fstype);
+\			}
+			FILTER_TYPE
+else
+			awk 'sub(/^\\/,"")||1' <<-FILTER_TYPE
+\			@vfs_${name}_trace[tid] = str(\$fstype);
+			FILTER_TYPE
+fi )
+		}
 PROBE
 done )
+	}
 
 	////////////////////////////////////////////////// OPEN EXIT PROBES
 
@@ -960,7 +964,7 @@ cat <<PROBE
 		\$ret = args->ret;
 		if (\$ret >= 0)
 		{
-			\$fd = (uint64)\$ret;
+			\$fd = \$ret;
 
 			// Set flag to trace read/write on fd
 			@trace[pid, \$fd] = \$fstype;
@@ -1003,8 +1007,8 @@ done )
 	tracepoint:syscalls:sys_exit_dup
 	/@dup_fd[tid]/
 	{
-		\$oldfd = (int64)@dup_fd[tid];
-		\$newfd = (int64)args->ret;
+		\$oldfd = @dup_fd[tid];
+		\$newfd = args->ret;
 
 		delete(@dup_fd[tid]); // Arg from sys_enter_dup
 
@@ -1023,29 +1027,27 @@ done )
 	}
 
 	/*
-	 * dup2(2) probes
+	 * dup2(2) probe
 	 */
 
 	tracepoint:syscalls:sys_enter_dup2
-	/@trace[pid, args->newfd] != "" && args->oldfd != args->newfd/
+	/args->oldfd != args->newfd/
 	{
-		delete(@trace[pid, args->newfd]);
-	}
+		\$oldfd = args->oldfd;
+		\$newfd = args->newfd;
 
-	tracepoint:syscalls:sys_enter_dup2
-	/@trace[pid, args->oldfd] != "" && args->oldfd != args->newfd/
-	{
-		\$oldfd = (int64)args->oldfd;
-		\$newfd = (int64)args->newfd;
+		delete(@trace[pid, \$newfd]);
 
-		// Set flag to trace read/write on fd
-		@trace[pid, \$newfd] = @trace[pid, \$oldfd];
+		if (@trace[pid, \$oldfd] != "") {
+			// Set flag to trace read/write on fd
+			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
-		${TIME_FMT:+time($RAW_TIME_FMT);
-		}printf("|dup2|%d.%d|%s|%d|%s|",
-			uid, gid, comm, pid,
-			@trace[pid, \$newfd]);
-		printf("%d|%d\n", \$oldfd, \$newfd);
+			${TIME_FMT:+time($RAW_TIME_FMT);
+			}printf("|dup2|%d.%d|%s|%d|%s|",
+				uid, gid, comm, pid,
+				@trace[pid, \$newfd]);
+			printf("%d|%d\n", \$oldfd, \$newfd);
+		}
 	}
 
 	/*
@@ -1053,25 +1055,23 @@ done )
 	 */
 
 	tracepoint:syscalls:sys_enter_dup3
-	/@trace[pid, args->newfd] != "" && args->oldfd != args->newfd/
+	/args->oldfd != args->newfd/
 	{
-		delete(@trace[pid, args->newfd]);
-	}
+		\$oldfd = args->oldfd;
+		\$newfd = args->newfd;
 
-	tracepoint:syscalls:sys_enter_dup3
-	/@trace[pid, args->oldfd] != "" && args->oldfd != args->newfd/
-	{
-		\$oldfd = (int64)args->oldfd;
-		\$newfd = (int64)args->newfd;
+		delete(@trace[pid, \$newfd]);
 
 		// Set flag to trace read/write on fd
-		@trace[pid, \$newfd] = @trace[pid, \$oldfd];
+		if (@trace[pid, \$oldfd] != "") {
+			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
-		${TIME_FMT:+time($RAW_TIME_FMT);
-		}printf("|dup3|%d.%d|%s|%d|%s|",
-			uid, gid, comm, pid,
-			@trace[pid, \$newfd]);
-		printf("%d|%d\n", \$oldfd, \$newfd);
+			${TIME_FMT:+time($RAW_TIME_FMT);
+			}printf("|dup3|%d.%d|%s|%d|%s|",
+				uid, gid, comm, pid,
+				@trace[pid, \$newfd]);
+			printf("%d|%d\n", \$oldfd, \$newfd);
+		}
 	}
 
 	/*
@@ -1079,22 +1079,15 @@ done )
 	 */
 
 	tracepoint:syscalls:sys_enter_fcntl
-	/args->cmd == F_DUPFD && args->fd != args->arg &&
-	 @trace[pid, args->arg] != ""/
+	/args->cmd == F_DUPFD && args->fd != args->arg/
 	{
-		delete(@trace[pid, args->arg]);
-	}
+		\$oldfd = args->fd;
+		\$newfd = args->arg;
 
-	tracepoint:syscalls:sys_enter_fcntl
-	/args->cmd == F_DUPFD && args->fd != args->arg &&
-	 @trace[pid, args->fd] != ""/
-	{
-		\$oldfd = (int64)args->fd;
-		\$newfd = (int64)args->arg;
+		delete(@trace[pid, \$newfd]);
 
-		if (\$oldfd != \$newfd)
-		{
-			// Set flag to trace read/write on fd
+		// Set flag to trace read/write on fd
+		if (@trace[pid, \$oldfd] != "") {
 			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
 			${TIME_FMT:+time($RAW_TIME_FMT);
