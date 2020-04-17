@@ -2,7 +2,7 @@
 #
 # $Title: Makefile for installing viosnoop $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/GNUmakefile 2020-02-16 20:04:23 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/GNUmakefile 2020-04-17 15:28:59 -0700 freebsdfrau $
 #
 ############################################################ CONFIGURATION
 
@@ -17,7 +17,7 @@ RM_F=		rm -f
 
 ############################################################ OBJECTS
 
-VIOSNOOP=	viosnoop
+PROG=		viosnoop
 
 ############################################################ TARGETS
 
@@ -28,10 +28,10 @@ all:
 
 install:
 	$(MKDIR_P) $(BINDIR)
-	$(CP_F) $(VIOSNOOP) $(BINDIR)/
+	$(CP_F) $(PROG) $(BINDIR)/
 
 uninstall:
-	$(RM_F) $(BINDIR)/$(VIOSNOOP)
+	$(RM_F) $(BINDIR)/$(PROG)
 
 ################################################################################
 # END
