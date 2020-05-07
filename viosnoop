@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-03-03 13:30:16 -0800 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-05-06 17:29:30 -0700 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 4.0 $'
+VERSION='$Version: 4.0.1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -844,7 +844,7 @@ fi
 			@pid_ignore[\$child_pid] = 1;
 		}
 
-		${FILTER_FOLLOW:+"
+${FILTER_FOLLOW:+"
 		//
 		// Flag follow-children
 		//
@@ -855,7 +855,7 @@ fi
 		if (@follow[args->parent_pid]) {
 			@follow[args->child_pid] = 1;
 		}
-		"}
+"}
 	}
 
 	////////////////////////////////////////////////// EXIT PROBE
@@ -886,7 +886,8 @@ cat <<PROBE
 	${OPEN_CONDITION:+/$OPEN_CONDITION/
 	}{
 		// Free vfs_open flags
-		if (str(args->filename) != "") {
+		if (str(args->filename) != "")
+		{
 			delete(@vfs_${name}_trace[tid]);
 			@vfs_$name[tid] = 1;
 
@@ -923,7 +924,8 @@ $( for func in sys_enter_open sys_enter_openat; do
 	name=${func#*enter_}
 	exit_func=${func%%enter_*}exit_$name
 cat <<PROBE
-		if (@vfs_$name[tid]) {
+		if (@vfs_$name[tid])
+		{
 			delete(@vfs_$name[tid]); // Flag from $func
 
 			//
@@ -1038,7 +1040,8 @@ done )
 
 		delete(@trace[pid, \$newfd]);
 
-		if (@trace[pid, \$oldfd] != "") {
+		if (@trace[pid, \$oldfd] != "")
+		{
 			// Set flag to trace read/write on fd
 			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
@@ -1062,8 +1065,9 @@ done )
 
 		delete(@trace[pid, \$newfd]);
 
-		// Set flag to trace read/write on fd
-		if (@trace[pid, \$oldfd] != "") {
+		if (@trace[pid, \$oldfd] != "")
+		{
+			// Set flag to trace read/write on fd
 			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
 			${TIME_FMT:+time($RAW_TIME_FMT);
@@ -1086,8 +1090,9 @@ done )
 
 		delete(@trace[pid, \$newfd]);
 
-		// Set flag to trace read/write on fd
-		if (@trace[pid, \$oldfd] != "") {
+		if (@trace[pid, \$oldfd] != "")
+		{
+			// Set flag to trace read/write on fd
 			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
 			${TIME_FMT:+time($RAW_TIME_FMT);
