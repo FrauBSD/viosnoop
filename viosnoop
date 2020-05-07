@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-05-06 17:29:30 -0700 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-05-06 17:30:43 -0700 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 4.0.1 $'
+VERSION='$Version: 4.1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -134,7 +134,7 @@ run_bpftrace()
 		return
 	fi
 
-	exec bpftrace -B none /dev/stdin "$@"
+	exec bpftrace -B none /dev/stdin
 }
 
 count()
@@ -778,12 +778,13 @@ fi
 	#
 	condition="!@pid_ignore[pid]"
 	if [ "$COMM" ]; then
+		COMM="\"$COMM\""
 		if [ "$FILTER_FOLLOW" ]; then
 			# For tracepoint:sched:sched_process_fork
-			condition="$condition && args->parent_comm == str(\$1)"
+			condition="$condition && args->parent_comm == $COMM"
 		else
 			# For tracepoint:syscalls:sys_enter_open*
-			condition="$condition && comm == str(\$1)"
+			condition="$condition && comm == $COMM"
 		fi
 	fi
 	if [ "$FILTER_GID" ]; then
@@ -806,7 +807,7 @@ fi
 	#
 	# Start background bpftrace
 	#
-	run_bpftrace "$@" <<EOF &
+	run_bpftrace <<EOF &
 	/* -*- mode: dtrace-script; tab-width: 4 -*- ;; Emacs
 	 * vi: set ft=dtrace noet ts=4 sw=4 :: Vi/ViM
 	 */
