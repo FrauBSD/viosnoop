@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop
 License: BSD
-Version: 4.1
+Version: 4.1.1
 Release: 1
 Buildarch: noarch
 
@@ -78,6 +78,8 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
+* Wed May  6 2020 Devin Teske <dteske@fraubsd.org> 4.1.1-1
+- 1bd1c4d Use variables
 * Wed May  6 2020 Devin Teske <dteske@fraubsd.org> 4.1-1
 - 008f1f3 Fix comm filtering [4.1]
 - 9442028 Whitespace, braces, and comments [4.0.1]
