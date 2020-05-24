@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop with SGE support
 License: BSD
-Version: 4.1.1
+Version: 4.1.2
 Release: 1
 Buildarch: noarch
 
@@ -82,5 +82,7 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
+* Sun May 24 2020 Devin Teske <dteske@fraubsd.org> 4.1.2-1
+- Version bump to make newer than 4.1.1p1
 * Sun May 17 2020 Devin Teske <dteske@fraubsd.org> 4.1.1-1
 - Package created.
