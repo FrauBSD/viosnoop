@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-05-24 11:05:06 -0700 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-05-25 17:12:50 -0700 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 4.1.2 $'
+VERSION='$Version: 4.1.3 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -387,6 +387,14 @@ if [ ! "$DEBUG" ]; then
 	fi
 	info "Tracing I/O... Hit Ctrl-C to end."
 fi
+
+#
+# Fixup PATH
+#
+case "$PATH" in
+/usr/sbin:*|*:/usr/sbin:*|*:/usr/sbin) : ok ;;
+*) PATH="${PATH:+$PATH:}/usr/sbin"
+esac
 
 #
 # Run script
