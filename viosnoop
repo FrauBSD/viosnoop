@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-06-26 21:10:43 -0700 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-06-26 21:46:09 -0700 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 5.0 $'
+VERSION='$Version: 5.1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -25,19 +25,20 @@ FAILURE=1
 #
 # Command-line options
 #
-COLOR=				# -c
-DEBUG=				# -d
-FILTER_FOLLOW=			# -f
-FILTER_GROUP=			# -g group
-FILTER_PID=			# -p pid
-FILTER_TYPE=			# -B, -E, -N, -T type, -X
-FILTER_USER=			# -u user
-IGNORE_RUNNING=			# -n
-QUIET=				# -q
-RAW_OUTPUT=			# -r
-SHOW_PATHS=1			# -F
-SILENT=				# -s
-TIME_FMT="$DEFAULT_TIME_FMT"	# -t fmt
+COLOR=					# -c
+DEBUG=					# -d
+FILTER_FOLLOW=				# -f
+FILTER_GROUP=				# -g group
+FILTER_PID=				# -p pid
+FILTER_TYPE=				# -B, -E, -N, -T type, -X
+FILTER_USER=				# -u user
+IGNORE_RUNNING=				# -n
+QUIET=					# -q
+RAW_OUTPUT=				# -r
+SHOW_PATHS=1				# -F
+SILENT=					# -s
+TIMEOUT_LSOF=				# -L time
+TIME_FMT="$DEFAULT_TIME_FMT"		# -t fmt
 
 #
 # Miscellaneous
@@ -97,6 +98,7 @@ usage()
 	printf "$optfmt" "-f" "Follow descendents of matching processes."
 	printf "$optfmt" "-g group" "Filter on group. Can be name or GID."
 	printf "$optfmt" "-h" "Print usage statement and exit."
+	printf "$optfmt" "-L time" "lsof(8) timeout duration. Default none."
 	printf "$optfmt" "-N" "Filter on NFS filesystems."
 	printf "$optfmt" "-n" "Ignore already-running processes."
 	printf "$optfmt" "-p pid" "Trace process whose id is pid."
@@ -118,12 +120,12 @@ run_lsof()
 	[ "$DEBUG" ] && return
 
 	case "$FILTER_TYPE" in
-	""|nfs*) lsof -X -N +c 0 ;;
+	""|nfs*) ${TIMEOUT_LSOF:+timeout "$TIMEOUT_LSOF"} lsof -X -N +c 0 ;;
 	esac
 
 	case "$FILTER_TYPE" in
 	nfs*) : skip ;;
-	*) lsof -X +c 0 +e /
+	*) ${TIMEOUT_LSOF:+timeout "$TIMEOUT_LSOF"} lsof -X +c 0 +e /
 	esac
 }
 
@@ -280,7 +282,7 @@ bpf_map_ids()
 #
 # Process command-line options
 #
-while getopts BcdEFfg:hNnp:qrSsT:t:u:vXZ flag; do
+while getopts BcdEFfg:hL:Nnp:qrSsT:t:u:vXZ flag; do
 	case "$flag" in
 	B) FILTER_TYPE=beegfs ;;
 	c) COLOR=1 ;;
@@ -289,6 +291,7 @@ while getopts BcdEFfg:hNnp:qrSsT:t:u:vXZ flag; do
 	F) SHOW_PATHS= ;;
 	f) FILTER_FOLLOW=1 ;;
 	g) FILTER_GROUP="$OPTARG" ;;
+	L) TIMEOUT_LSOF="$OPTARG" ;;
 	n) IGNORE_RUNNING=1 ;;
 	N) FILTER_TYPE=nfs ;;
 	p) [ "$OPTARG" ] || die "\`-p' requires an argument"
@@ -339,6 +342,19 @@ fi
 if [ "$QUIET" -a ! "$SHOW_PATHS" ]; then
 	TRACE_PATHS=
 fi
+
+#
+# Validate `-L sec' option
+#
+case "$TIMEOUT_LSOF" in
+"") usage "missing -L argument" ;; # NOTREACHED
+*[smhd])
+	case "${TIMEOUT_LSOF%?}" in
+	""|*[!0-9.]*|*.*.*|.) die "bad -L argument" ;;
+	esac
+	;;
+*[!0-9.]*|*.*.*|.) die "bad -L argument" ;;
+esac
 
 #
 # Process `-u user'/`-g group' options
