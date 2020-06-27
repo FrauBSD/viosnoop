@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop
 License: BSD
-Version: 5.0
+Version: 5.1
 Release: 1
 Buildarch: noarch
 
@@ -78,7 +78,10 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
+* Fri Jun 26 2020 Devin Teske <dteske@fraubsd.org> 5.1-1
+- 447989a Add -L time option for timing out lsof(8)
 * Fri Jun 26 2020 Devin Teske <dteske@fraubsd.org> 5.0-1
+- c55936b Fix non-SGE version
 - 9ab3241 Add support for stat, fstat, and lstat
 * Tue May 26 2020 Devin Teske <dteske@fraubsd.org> 4.2-1
 - 2c15266 Fix ps(1) syntax error on Ubuntu
