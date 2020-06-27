@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop.sge 2020-05-27 00:54:03 +0000 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop.sge 2020-06-26 19:30:11 -0700 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 4.2 $'
+VERSION='$Version: 5.0 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1398,6 +1398,149 @@ ${TRACE_PATHS:+`cat <<TRACE_PATHS
 TRACE_PATHS`}
 	}
 
+	////////////////////////////////////////////////// FSTAT PROBES
+
+	/*
+	 * fstat(2,3) probes
+	 */
+
+	kprobe:vfs_fstat
+	/@trace[pid, arg0] != ""/
+	{
+		\$fd = arg0;
+
+		// Pass args to kretprobe
+		@fstat_exit[tid] = 1;
+		@fstat_fd[tid] = \$fd;
+	}
+
+	kretprobe:vfs_fstat
+	/@fstat_exit[tid]/
+	{
+		\$fd = @fstat_fd[tid];
+		\$ret = retval;
+		\$fstype = @trace[pid, \$fd];
+		\$job_pid = @is_sge_job[pid];
+
+		// Args from kprobe
+		delete(@fstat_exit[tid]);
+		delete(@fstat_fd[tid]);
+
+		${TIME_FMT:+time($RAW_TIME_FMT);
+		}printf("|fstat|%d.%d|%s|%d|%d|%s|",
+			uid, gid, comm, pid,
+			\$job_pid,
+			\$fstype);
+		printf("%d|%d\n", \$fd, \$ret);
+	}
+
+	////////////////////////////////////////////////// STAT ENTER PROBES
+
+	/*
+	 * stat(2,3)/lstat(2,3) [enter] probes
+	 */
+
+$( for func in sys_enter_newstat sys_enter_newlstat; do
+	name=${func#*enter_}
+cat <<PROBE
+	tracepoint:syscalls:$func
+	${OPEN_CONDITION:+/$OPEN_CONDITION/
+	}{
+		// Free vfs_getattr flags
+		if (str(args->filename) != "" && comm != "bpftrace")
+		{
+			delete(@vfs_${name}_trace[tid]);
+			@vfs_$name[tid] = 1;
+
+${TRACE_PATHS:+`awk 'sub(/^\\\\/,"")||1' <<-TRACE_PATHS
+\			${TIME_FMT:+time($RAW_TIME_FMT);
+\			}printf("|${func#sys_}|%d.%d|%s|%d||%d|%s\n",
+\				uid, gid, comm, pid,
+\				tid, str(args->filename));
+			TRACE_PATHS`}
+		}
+	}
+
+PROBE
+done )
+
+	////////////////////////////////////////////////// VFS_GETATTR PROBE
+
+	/*
+	 * NB: vfs_getattr() called after successful translation of
+	 * char * to struct path * in vfs_fstatat by user_path_at().
+	 */
+
+	kprobe:vfs_getattr
+	/!@pid_ignore[pid] && comm != "bpftrace"/
+	{
+		//
+		// Extract the filesystem type from mount superblock
+		//
+		\$path = (struct path *)arg0;
+		\$mnt = (struct vfsmount *)\$path->mnt;
+		\$mnt_sb = (struct super_block *)\$mnt->mnt_sb;
+		\$type = (struct file_system_type *)\$mnt_sb->s_type;
+		\$fstype = \$type->name;
+
+$( for func in sys_enter_newstat sys_enter_newlstat; do
+	name=${func#*enter_}
+	exit_func=${func%%enter_*}exit_$name
+cat <<PROBE
+		if (@vfs_$name[tid])
+		{
+			delete(@vfs_$name[tid]); // Flag from $func
+
+			//
+			// Test filesystem type (for $exit_func)
+			//
+$( if [ "$FILTER_TYPE" ]; then
+			awk 'sub(/^\\/,"")||1' <<-FILTER_TYPE
+\			if (str(\$fstype, ${#FILTER_TYPE}) == "$FILTER_TYPE") {
+\				@vfs_${name}_trace[tid] = str(\$fstype);
+\			}
+			FILTER_TYPE
+else
+			awk 'sub(/^\\/,"")||1' <<-FILTER_TYPE
+\			@vfs_${name}_trace[tid] = str(\$fstype);
+			FILTER_TYPE
+fi )
+		}
+PROBE
+done )
+	}
+
+	////////////////////////////////////////////////// STAT EXIT PROBES
+
+	/*
+	 * stat(2,3)/lstat(2,3) [exit] probes
+	 */
+
+$( for func in sys_exit_newstat sys_exit_newlstat; do
+	name=${func#*exit_}
+cat <<PROBE
+	tracepoint:syscalls:$func
+	/comm != "bpftrace"/
+	{
+		\$fstype = @vfs_${name}_trace[tid];
+		\$job_pid = @is_sge_job[pid];
+
+		delete(@vfs_$name[tid]); // Flag from enter for vfs_getattr
+		delete(@vfs_${name}_trace[tid]); // Flag from vfs_getattr
+
+		\$ret = args->ret;
+
+		${TIME_FMT:+time($RAW_TIME_FMT);
+		}printf("|exit_$name|%d.%d|%s|%d|%d|%s|",
+			uid, gid, comm, pid,
+			\$job_pid,
+			\$fstype);
+		printf("%d|%d|%d\n", tid, \$ret, \$fstype == "" ? 0 : 1);
+	}
+
+PROBE
+done )
+
 	////////////////////////////////////////////////// READ PROBES
 
 	/*
@@ -1479,6 +1622,8 @@ TRACE_PATHS`}
 	END {${FILTER_FOLLOW:+
 		clear(@follow);}
 		clear(@dup_fd);
+		clear(@fstat_exit);
+		clear(@fstat_fd);
 		clear(@pid_ignore);
 		clear(@is_new_job);
 		clear(@is_sge_job);
@@ -1486,7 +1631,12 @@ TRACE_PATHS`}
 		clear(@read_exit);
 		clear(@read_fd);
 		clear(@trace);
-$( for func in sys_enter_open sys_enter_openat; do
+$( for func in \
+	sys_enter_open \
+	sys_enter_openat \
+	sys_enter_newstat \
+	sys_enter_newlstat \
+; do
 		name=${func#*enter_}
 		awk 'sub(/^\\/,"")||1' <<-CLEAR
 \		clear(@vfs_$name);
@@ -1688,6 +1838,7 @@ EOF
 		red     = "\033[31m"
 		green   = "\033[32m"
 		yellow  = "\033[33m"
+		blue    = "\033[34m"
 		magenta = "\033[35m"
 		cyan    = "\033[36m"
 		fgreset = "\033[39m"
@@ -1847,6 +1998,14 @@ EOF
 		next
 	}
 
+	call == "enter_newstat" || call == "enter_newlstat" {
+		if (NF < NCF + 2) next # Malformed input
+		tid = $(NCF + 1)
+		filename = $(NCF + 2)
+		if (filename != "") filename_thread_cache[tid] = filename
+		next
+	}
+
 	call == "exit_open" || call == "exit_openat" {
 		if (NF < NCF + 3) next # Malformed input
 		fstype = $(NCF + 1)
@@ -1869,6 +2028,31 @@ EOF
 			}
 		} else if (!quiet) {
 			emit(green, sprintf("%s() = %d", callname, fd))
+		}
+		next
+	}
+
+	call == "exit_newstat" || call == "exit_newlstat" {
+		if (NF < NCF + 4) next # Malformed input
+		fstype = $(NCF + 1)
+		tid = $(NCF + 2)
+		ret = $(NCF + 3)
+		trace = $(NCF + 4)
+		if (trace != 1) { # Ignored filesystem type
+			delete filename_thread_cache[tid]
+			next
+		}
+		# Traced filesystem type
+		callname = substr(call, 9)
+		if (show_paths) {
+			filename = filename_thread_cache[tid]
+			delete filename_thread_cache[tid]
+			if (!quiet) {
+				emit(blue, sprintf("%s(filename=%s) = %d",
+					callname, filename, ret))
+			}
+		} else if (!quiet) {
+			emit(blue, sprintf("%s() = %d", callname, ret))
 		}
 		next
 	}
@@ -1945,6 +2129,23 @@ EOF
 			emit(call == "read" ? cyan : red,
 				sprintf("%s(fd=%d, count=%ld) = %ld",
 				call, fd, count, ret))
+		}
+		next
+	}
+
+	call == "fstat" {
+		if (NF < NCF + 3) next # Malformed input
+		fstype = $(NCF + 1)
+		fd = $(NCF + 2)
+		ret = $(NCF + 3)
+		if (quiet && ret != 0) next
+		if (show_paths) {
+			filename = filename_cache[key(pid, fd)]
+			emit(blue, sprintf("%s(fd=%d <%s>) = %ld",
+				call, fd, filename, ret))
+		} else {
+			emit(blue, sprintf("%s(fd=%d) = %ld",
+				call, fd, ret))
 		}
 		next
 	}
