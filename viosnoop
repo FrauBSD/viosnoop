@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-06-26 19:30:11 -0700 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2020-06-26 21:10:43 -0700 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -1157,16 +1157,14 @@ TRACE_PATHS`}
 		\$fd = @fstat_fd[tid];
 		\$ret = retval;
 		\$fstype = @trace[pid, \$fd];
-		\$job_pid = @is_sge_job[pid];
 
 		// Args from kprobe
 		delete(@fstat_exit[tid]);
 		delete(@fstat_fd[tid]);
 
 		${TIME_FMT:+time($RAW_TIME_FMT);
-		}printf("|fstat|%d.%d|%s|%d|%d|%s|",
+		}printf("|fstat|%d.%d|%s|%d|%s|",
 			uid, gid, comm, pid,
-			\$job_pid,
 			\$fstype);
 		printf("%d|%d\n", \$fd, \$ret);
 	}
@@ -1260,7 +1258,6 @@ cat <<PROBE
 	/comm != "bpftrace"/
 	{
 		\$fstype = @vfs_${name}_trace[tid];
-		\$job_pid = @is_sge_job[pid];
 
 		delete(@vfs_$name[tid]); // Flag from enter for vfs_getattr
 		delete(@vfs_${name}_trace[tid]); // Flag from vfs_getattr
@@ -1268,9 +1265,8 @@ cat <<PROBE
 		\$ret = args->ret;
 
 		${TIME_FMT:+time($RAW_TIME_FMT);
-		}printf("|exit_$name|%d.%d|%s|%d|%d|%s|",
+		}printf("|exit_$name|%d.%d|%s|%d|%s|",
 			uid, gid, comm, pid,
-			\$job_pid,
 			\$fstype);
 		printf("%d|%d|%d\n", tid, \$ret, \$fstype == "" ? 0 : 1);
 	}
