@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop.sge 2020-06-26 21:46:09 -0700 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop.sge 2020-06-27 19:04:23 -0700 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 5.1 $'
+VERSION='$Version: 5.2 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -353,7 +353,7 @@ fi
 # Validate `-L sec' option
 #
 case "$TIMEOUT_LSOF" in
-"") usage "missing -L argument" ;; # NOTREACHED
+"") : ok ;;
 *[smhd])
 	case "${TIMEOUT_LSOF%?}" in
 	""|*[!0-9.]*|*.*.*|.) die "bad -L argument" ;;
@@ -1034,11 +1034,14 @@ esac
 
 	#
 	# Start background bpftrace
+	# NB: M-x package-install [RET] dtrace-script-mode [RET]
 	#
 	run_bpftrace <<EOF &
+	${DEBUG:+#!/usr/bin/bpftrace}
 	/* -*- mode: dtrace-script; tab-width: 4 -*- ;; Emacs
 	 * vi: set ft=dtrace noet ts=4 sw=4 :: Vi/ViM
 	 */
+	////////////////////////////////////////////////// INCLUDES
 
 	#include <linux/fs.h>
 	#include <linux/mount.h>
@@ -1106,6 +1109,10 @@ ${FILTER_FOLLOW:+"
 
 	////////////////////////////////////////////////// EXECVE PROBE
 
+	/*
+	 * Watch job shepherds
+	 */
+
 	kprobe:SyS_execve
 	/@is_new_job[pid]/
 	{
@@ -1153,13 +1160,12 @@ ${FILTER_FOLLOW:+"
 
 $( for func in sys_enter_open sys_enter_openat; do
 	name=${func#*enter_}
-cat <<PROBE
+	cat <<PROBE
 	tracepoint:syscalls:$func
 	${OPEN_CONDITION:+/$OPEN_CONDITION/
 	}{
 		// Free vfs_open flags
-		if (str(args->filename) != "")
-		{
+		if (str(args->filename) != "") {
 			\$job_pid = @is_sge_job[pid];
 
 			delete(@vfs_${name}_trace[tid]);
@@ -1196,11 +1202,10 @@ done )
 		\$fstype = \$type->name;
 
 $( for func in sys_enter_open sys_enter_openat; do
-	name=${func#*enter_}
-	exit_func=${func%%enter_*}exit_$name
-cat <<PROBE
-		if (@vfs_$name[tid])
-		{
+		name=${func#*enter_}
+		exit_func=${func%%enter_*}exit_$name
+		cat <<PROBE
+		if (@vfs_$name[tid]) {
 			delete(@vfs_$name[tid]); // Flag from $func
 
 			//
@@ -1230,7 +1235,7 @@ done )
 
 $( for func in sys_exit_open sys_exit_openat; do
 	name=${func#*exit_}
-cat <<PROBE
+	cat <<PROBE
 	tracepoint:syscalls:$func
 	/@vfs_${name}_trace[tid] != ""/
 	{
@@ -1242,7 +1247,7 @@ cat <<PROBE
 		\$ret = args->ret;
 		if (\$ret >= 0)
 		{
-			\$fd = \$ret;
+			\$fd = (uint64)\$ret;
 
 			// Set flag to trace read/write on fd
 			@trace[pid, \$fd] = \$fstype;
@@ -1287,8 +1292,8 @@ done )
 	tracepoint:syscalls:sys_exit_dup
 	/@dup_fd[tid]/
 	{
-		\$oldfd = @dup_fd[tid];
-		\$newfd = args->ret;
+		\$oldfd = (int64)@dup_fd[tid];
+		\$newfd = (int64)args->ret;
 		\$job_pid = @is_sge_job[pid];
 
 		delete(@dup_fd[tid]); // Arg from sys_enter_dup
@@ -1305,7 +1310,6 @@ done )
 				@trace[pid, \$newfd]);
 			printf("%d|%d\n", \$oldfd, \$newfd);
 		}
-
 	}
 
 	/*
@@ -1315,14 +1319,13 @@ done )
 	tracepoint:syscalls:sys_enter_dup2
 	/args->oldfd != args->newfd/
 	{
-		\$oldfd = args->oldfd;
-		\$newfd = args->newfd;
+		\$oldfd = (int64)args->oldfd;
+		\$newfd = (int64)args->newfd;
 		\$job_pid = @is_sge_job[pid];
 
 		delete(@trace[pid, \$newfd]);
 
-		if (@trace[pid, \$oldfd] != "")
-		{
+		if (@trace[pid, \$oldfd] != "") {
 			// Set flag to trace read/write on fd
 			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
@@ -1342,15 +1345,14 @@ done )
 	tracepoint:syscalls:sys_enter_dup3
 	/args->oldfd != args->newfd/
 	{
-		\$oldfd = args->oldfd;
-		\$newfd = args->newfd;
+		\$oldfd = (int64)args->oldfd;
+		\$newfd = (int64)args->newfd;
 		\$job_pid = @is_sge_job[pid];
 
 		delete(@trace[pid, \$newfd]);
 
-		if (@trace[pid, \$oldfd] != "")
-		{
-			// Set flag to trace read/write on fd
+		// Set flag to trace read/write on fd
+		if (@trace[pid, \$oldfd] != "") {
 			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
 			${TIME_FMT:+time($RAW_TIME_FMT);
@@ -1369,15 +1371,14 @@ done )
 	tracepoint:syscalls:sys_enter_fcntl
 	/args->cmd == F_DUPFD && args->fd != args->arg/
 	{
-		\$oldfd = args->fd;
-		\$newfd = args->arg;
+		\$oldfd = (int64)args->fd;
+		\$newfd = (int64)args->arg;
 		\$job_pid = @is_sge_job[pid];
 
 		delete(@trace[pid, \$newfd]);
 
-		if (@trace[pid, \$oldfd] != "")
-		{
-			// Set flag to trace read/write on fd
+		// Set flag to trace read/write on fd
+		if (@trace[pid, \$oldfd] != "") {
 			@trace[pid, \$newfd] = @trace[pid, \$oldfd];
 
 			${TIME_FMT:+time($RAW_TIME_FMT);
@@ -1458,7 +1459,7 @@ TRACE_PATHS`}
 
 $( for func in sys_enter_newstat sys_enter_newlstat; do
 	name=${func#*enter_}
-cat <<PROBE
+	cat <<PROBE
 	tracepoint:syscalls:$func
 	${OPEN_CONDITION:+/$OPEN_CONDITION/
 	}{
@@ -1502,7 +1503,7 @@ done )
 $( for func in sys_enter_newstat sys_enter_newlstat; do
 	name=${func#*enter_}
 	exit_func=${func%%enter_*}exit_$name
-cat <<PROBE
+	cat <<PROBE
 		if (@vfs_$name[tid])
 		{
 			delete(@vfs_$name[tid]); // Flag from $func
@@ -1534,17 +1535,16 @@ done )
 
 $( for func in sys_exit_newstat sys_exit_newlstat; do
 	name=${func#*exit_}
-cat <<PROBE
+	cat <<PROBE
 	tracepoint:syscalls:$func
 	/comm != "bpftrace"/
 	{
+		\$ret = args->ret;
 		\$fstype = @vfs_${name}_trace[tid];
 		\$job_pid = @is_sge_job[pid];
 
 		delete(@vfs_$name[tid]); // Flag from enter for vfs_getattr
 		delete(@vfs_${name}_trace[tid]); // Flag from vfs_getattr
-
-		\$ret = args->ret;
 
 		${TIME_FMT:+time($RAW_TIME_FMT);
 		}printf("|exit_$name|%d.%d|%s|%d|%d|%s|",
@@ -1560,7 +1560,7 @@ done )
 	////////////////////////////////////////////////// READ PROBES
 
 	/*
-	 * Read/Write probes
+	 * read(2) probes
 	 */
 
 	tracepoint:syscalls:sys_enter_read
@@ -1598,6 +1598,10 @@ done )
 	}
 
 	////////////////////////////////////////////////// WRITE PROBES
+
+	/*
+	 * write(2) probes
+	 */
 
 	tracepoint:syscalls:sys_enter_write
 	/@trace[pid, args->fd] != ""/
@@ -1664,9 +1668,9 @@ done )
 		clear(@write_fd);
 	}
 
-//////////////////////////////////////////////////////////////////////
-// END
-//////////////////////////////////////////////////////////////////////
+	//////////////////////////////////////////////////////////////////////
+	// END
+	//////////////////////////////////////////////////////////////////////
 EOF
 	pid=$!
 	prog_id=
