@@ -4,7 +4,7 @@
 #
 # $Title: Script to snoop on VFS I/O under Linux $
 # $Copyright: 2020-2021 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2021-10-14 11:21:48 -0700 freebsdfrau $
+# $FrauBSD: viosnoop/viosnoop 2021-10-14 13:48:39 -0700 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 5.3 $'
+VERSION='$Version: 5.3.1 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1671,6 +1671,7 @@ EOF
 	{
 		user = $3 # uid.gid
 		cmd = $4
+		sub(/ +       [[:digit:]]+$/, "", cmd)
 		pid = $5
 	}
 
