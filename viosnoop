@@ -3,8 +3,8 @@
 ############################################################ IDENT(1)
 #
 # $Title: Script to snoop on VFS I/O under Linux $
-# $Copyright: 2020 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2020-06-27 19:04:23 -0700 freebsdfrau $
+# $Copyright: 2020-2021 Devin Teske. All rights reserved. $
+# $FrauBSD: viosnoop/viosnoop 2021-10-14 11:21:48 -0700 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 5.2 $'
+VERSION='$Version: 5.3 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -39,6 +39,16 @@ SHOW_PATHS=1				# -F
 SILENT=					# -s
 TIMEOUT_LSOF=				# -L time
 TIME_FMT="$DEFAULT_TIME_FMT"		# -t fmt
+
+#
+# Probes
+# NB: Dependent on kernel version
+# NB: export'd for awk(1) `ENVIRON' access
+#
+export KPROBE_VFS_FSTAT=kprobe:vfs_fstat
+export KRETPROBE_VFS_FSTAT=kretprobe:vfs_fstat
+export KPROBE_VFS_FSTAT_PRE_da9aa5d=kprobe:vfs_statx_fd
+export KRETPROBE_VFS_FSTAT_PRE_da9aa5d=kretprobe:vfs_statx_fd
 
 #
 # Miscellaneous
@@ -829,6 +839,26 @@ esac
 	fi
 
 	#
+	# Alter certain probes based on what bpftrace(1) reports from kernel
+	#
+	eval "$( bpftrace -l 2> /dev/null | awk '
+		function set(var, value) { print var "=" value }
+		function testset(var, suffix)
+		{
+			if ($0 != ENVIRON[var "_" suffix]) return 0
+			set(var, $0)
+			if (sub(/^KPROBE_/, "KRETPROBE_", var)) {
+				sub(/^kprobe:/, "kretprobe:")
+				set(var, $0)
+			}
+			return 1
+		}
+		{
+			if (testset("KPROBE_VFS_FSTAT", "PRE_da9aa5d")) next
+		}
+	' )"
+
+	#
 	# Start background bpftrace
 	# NB: M-x package-install [RET] dtrace-script-mode [RET]
 	#
@@ -1154,7 +1184,7 @@ TRACE_PATHS`}
 	 * fstat(2,3) probes
 	 */
 
-	kprobe:vfs_fstat
+	$KPROBE_VFS_FSTAT
 	/@trace[pid, arg0] != ""/
 	{
 		\$fd = arg0;
@@ -1164,7 +1194,7 @@ TRACE_PATHS`}
 		@fstat_fd[tid] = \$fd;
 	}
 
-	kretprobe:vfs_fstat
+	$KRETPROBE_VFS_FSTAT
 	/@fstat_exit[tid]/
 	{
 		\$fd = @fstat_fd[tid];
