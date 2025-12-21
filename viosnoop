@@ -3,8 +3,8 @@
 ############################################################ IDENT(1)
 #
 # $Title: Script to snoop on VFS I/O under Linux $
-# $Copyright: 2020-2021 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop 2021-10-14 13:48:39 -0700 freebsdfrau $
+# $Copyright: 2020-2025 Devin Teske. All rights reserved. $
+# $FrauBSD: viosnoop/viosnoop 2025-12-21 00:59:12 -0800 freebsdfrau $
 #
 ############################################################ DEFAULTS
 
@@ -12,7 +12,7 @@ DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 5.3.1 $'
+VERSION='$Version: 6.0 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -1020,10 +1020,9 @@ $( for func in sys_exit_open sys_exit_openat; do
 		delete(@vfs_${name}_trace[tid]); // Flag from vfs_open
 
 		\$ret = args->ret;
+		\$fd = (uint64)\$ret;
 		if (\$ret >= 0)
 		{
-			\$fd = (uint64)\$ret;
-
 			// Set flag to trace read/write on fd
 			@trace[pid, \$fd] = \$fstype;
 
