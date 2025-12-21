@@ -3,16 +3,20 @@
 ############################################################ IDENT(1)
 #
 # $Title: Script to snoop on VFS I/O under Linux $
-# $Copyright: 2020-2021 Devin Teske. All rights reserved. $
-# $FrauBSD: viosnoop/viosnoop.sge 2021-10-14 13:48:39 -0700 freebsdfrau $
+# $Copyright: 2020-2025 Devin Teske. All rights reserved. $
+# $FrauBSD: viosnoop/viosnoop.sge 2025-12-20 00:46:02 -0800 freebsdfrau $
 #
+############################################################ ENVIRONMENT
+
+: "${UNAME_r:=$( uname -r )}" # Kernel version
+
 ############################################################ DEFAULTS
 
 DEFAULT_TIME_FMT="%Y %b %e %T"
 
 ############################################################ GLOBALS
 
-VERSION='$Version: 5.3.1 $'
+VERSION='$Version: 6.0 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -46,10 +50,17 @@ TIME_FMT="$DEFAULT_TIME_FMT"		# -t fmt
 # NB: Dependent on kernel version
 # NB: export'd for awk(1) `ENVIRON' access
 #
-export KPROBE_EXECVE=kprobe:do_execve
-export KRETPROBE_EXECVE=kretprobe:do_execve
-export KPROBE_EXECVE_LEGACY=kprobe:SyS_execve
-export KRETPROBE_EXECVE_LEGACY=kretprobe:SyS_execve
+case "$UNAME_r" in
+[1234].*|5.[01234].*)
+	export KPROBE_EXECVE=kprobe:do_execve
+	export KRETPROBE_EXECVE=kretprobe:do_execve
+	export KPROBE_EXECVE_LEGACY=kprobe:SyS_execve
+	export KRETPROBE_EXECVE_LEGACY=kretprobe:SyS_execve
+	;;
+*)
+	export KPROBE_EXECVE=tracepoint:syscalls:sys_enter_execve
+	export KRETPROBE_EXECVE=tracepoint:syscalls:sys_enter_execve
+esac
 export KPROBE_VFS_FSTAT=kprobe:vfs_fstat
 export KRETPROBE_VFS_FSTAT=kretprobe:vfs_fstat
 export KPROBE_VFS_FSTAT_PRE_da9aa5d=kprobe:vfs_statx_fd
@@ -1280,10 +1291,9 @@ $( for func in sys_exit_open sys_exit_openat; do
 		delete(@vfs_${name}_trace[tid]); // Flag from vfs_open
 
 		\$ret = args->ret;
+		\$fd = (uint64)\$ret;
 		if (\$ret >= 0)
 		{
-			\$fd = (uint64)\$ret;
-
 			// Set flag to trace read/write on fd
 			@trace[pid, \$fd] = \$fstype;
 
