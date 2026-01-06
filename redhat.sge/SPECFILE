@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop with SGE support
 License: BSD
-Version: 5.3.2
+Version: 6.0
 Release: 1
 Buildarch: noarch
 
