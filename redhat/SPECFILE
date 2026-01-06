@@ -9,7 +9,7 @@ Group: Applications/FrauBSD
 
 Summary: viosnoop
 License: BSD
-Version: 5.3.1
+Version: 6.0
 Release: 1
 Buildarch: noarch
 
@@ -78,6 +78,9 @@ WWW: https://www.fraubsd.org/viosnoop
 
 
 %changelog
+* Sun Dec 21 2025 Devin Teske <dteske@fraubsd.org> 6.0-1
+- bebf72c Update viosnoop
+- Add support for kernel 5.14+. Fix notrace error. Fix $fd error.
 * Thu Oct 14 2021 Devin Teske <dteske@fraubsd.org> 5.3.1-1
 - 1dbfc22 Fix malformed cmd inputs from kernel
 * Thu Oct 14 2021 Devin Teske <dteske@fraubsd.org> 5.3-1
