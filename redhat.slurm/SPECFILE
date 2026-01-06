@@ -1,0 +1,86 @@
+# -*- tab-width:  4 -*- ;; Emacs
+# vi: set noexpandtab   :: Vi/ViM
+# vi: set filetype=spec ::
+############################################################ HEADER
+
+Name: viosnoop-slurm
+Group: Applications/FrauBSD
+# For a list of groups, see pkgcenter/redhat/Mk/GROUPS
+
+Summary: viosnoop with Slurm support
+License: BSD
+Version: 6.0
+Release: 1
+Buildarch: noarch
+
+URL: https://www.fraubsd.org/viosnoop
+Packager: Devin Teske <dteske@freebsd.org>
+Vendor: The FrauBSD Project https://www.fraubsd.org/
+
+BuildRoot: %{_tmppath}/src
+
+Obsoletes: viosnoop <= %{version}
+Provides: viosnoop = %{version}
+Conflicts: viosnoop
+
+Requires: /bin/awk
+Requires: /bin/sh
+Requires: bpftool
+Requires: bpftrace
+Requires: lsof
+Requires: psmisc
+
+############################################################ DESCRIPTION
+
+%Description
+Snoop on Linux VFS I/O using bpftrace
+
+WWW: https://www.fraubsd.org/viosnoop
+
+############################################################ MACROS
+
+#
+# Define how we should install the files into the temporary
+# install-root from which the RPM will be compiled.
+#
+%define TAR          %{__tar}
+%define TARFROMFLAGS c --exclude CVS -f - -C
+%define TARFILES     .
+%define TARTOFLAGS   xvf - -C
+
+#
+# Short-hand
+#
+# NOTE: $RPM_BUILD_ROOT has a trailing-slash
+#
+%define TMPROOT $RPM_BUILD_ROOT
+
+############################################################ INSTALL STANZA
+
+%install
+%{__mkdir_p} %{TMPROOT}
+%{TAR} %{TARFROMFLAGS} %{_srcdir} %{TARFILES} | %{TAR} %{TARTOFLAGS} %{TMPROOT}
+
+############################################################ FILES STANZA
+
+%files
+%defattr(-,root,root)
+/usr/bin/viosnoop
+
+############################################################ FOOTER
+
+%pre
+
+
+%post
+
+
+%preun
+
+
+%postun
+
+
+%changelog
+* Mon Jan  5 2026 Devin Teske <dteske@fraubsd.org> 6.0-1
+- Package created.
